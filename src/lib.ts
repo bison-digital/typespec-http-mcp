@@ -170,6 +170,19 @@ const diagnostics = {
 		},
 	},
 	/**
+	 * Another emitter writes where this one writes, with options that disagree.
+	 *
+	 * Fires only when the resolved LIBRARY options differ. Sharing a directory with matching options
+	 * is the arrangement that makes one `Ctx`, one `Result` and one set of validators serve both
+	 * surfaces, and it is silent.
+	 */
+	"shared-output-dir": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"emitter"}' writes to the same emitter-output-dir as this emitter with different options (${"differing"}), so 'schemas.gen.ts' is written twice with different content and whichever emitter is listed LAST in 'emit:' wins. Give each emitter its own 'emitter-output-dir', or set the same values on both.`,
+		},
+	},
+	/**
 	 * A request body an MCP tool argument cannot carry.
 	 *
 	 * A tool's arguments are JSON. A raw `bytes` body, a stream, or a `multipart/form-data` upload is
@@ -259,6 +272,7 @@ type Diagnostics = {
 	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
 	"headers-only-success": { readonly default: CallableMessage<["operationId"]> };
 	"tool-without-description": { readonly default: CallableMessage<["operationId"]> };
+	"shared-output-dir": { readonly default: CallableMessage<["emitter", "differing"]> };
 };
 
 export const $lib: TypeSpecLibrary<Diagnostics, EmitterOptions> = createTypeSpecLibrary({

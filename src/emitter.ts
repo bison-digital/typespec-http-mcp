@@ -8,6 +8,7 @@ import type { EmitterOptions } from "./lib.js";
 import { reportDiagnostic } from "./lib.js";
 import { nameTools } from "./names.js";
 import { securityFor } from "./security.js";
+import { collisionsFor } from "./coexistence.js";
 import { refusalFor, warningsFor } from "./refusals.js";
 import { renderTools, type ToolEntry } from "./tools.js";
 import { httpOperationFor, selectTools } from "./select.js";
@@ -26,6 +27,9 @@ import { httpOperationFor, selectTools } from "./select.js";
  * Giving this package its own runtime filename means the only file the two can contest is
  * `schemas.gen.ts`, which is byte-identical under identical options.
  */
+/** This emitter's own name, as `tspconfig.yaml` and the compiler both spell it. */
+const PACKAGE_NAME = "typespec-http-mcp";
+
 export const DEFAULT_RUNTIME_MODULE = "./mcp-runtime.gen.js";
 
 /** Where this package's own runtime source lives, to be copied beside the generated code. */
@@ -87,6 +91,18 @@ function targetFor(
  */
 export async function $onEmit(context: EmitContext): Promise<void> {
 	const options = context.options as EmitterOptions;
+
+	/**
+	 * Raised once per program, before anything is written: it is about the arrangement, not about any
+	 * one service, and a consumer needs to see it before they trust what landed on disk.
+	 */
+	for (const collision of collisionsFor(context.program, PACKAGE_NAME, context.emitterOutputDir)) {
+		reportDiagnostic(context.program, {
+			code: "shared-output-dir",
+			target: NoTarget,
+			format: { emitter: collision.emitter, differing: collision.differing.join(", ") },
+		});
+	}
 
 	for (const emitted of await emitHttpZod(context, {
 		defaultRuntimeModule: DEFAULT_RUNTIME_MODULE,

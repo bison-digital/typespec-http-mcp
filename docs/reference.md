@@ -107,6 +107,28 @@ not -- `$` arrives through a template instantiation -- so this fires for real sp
 
 Remedy: name the operation with `@operationId("...")`, or shorten `tool-prefix`.
 
+### `shared-output-dir`
+
+Another emitter in the same program writes to the same `emitter-output-dir` as this one, with
+different library options.
+
+Both emitters run `typespec-http-zod`, so both write `schemas.gen.ts`. `emitFile` has no
+duplicate-path detection, so that is a silent last-writer-wins and **the order of `emit:` in
+`tspconfig.yaml` decides the winner.** Measured on the published packages with divergent
+`seal-object-schemas`: one order produced 19 unsealed objects, the other 11 unsealed and 8 sealed --
+exit 0 and no diagnostic either time.
+
+Fires **only when the resolved library options differ**. Sharing one directory with matching options
+is silent, and is the arrangement worth having: it is what makes one `Ctx`, one `Result` and one set
+of validators serve both surfaces.
+
+With nothing configured this cannot happen at all -- each emitter defaults to a directory named
+after itself.
+
+Remedy: give each emitter its own `emitter-output-dir`, or set the same `runtime-module`,
+`seal-object-schemas`, `compile-schemas`, `contracts-package`, `contracts-output-dir`,
+`key-vocabularies` and `regenerate-hint` on both.
+
 ### `binary-tool-input`
 
 The request body is raw bytes, a stream, or `multipart/form-data`. A tool's arguments are JSON.
