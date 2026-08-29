@@ -1,0 +1,30 @@
+node_modules/
+dist/
+
+# Emitted output. A glob rather than a list of suite directories: an enumerated list goes stale the
+# first time a suite is added, and the failure mode is a generated file committed by accident.
+**/.out/
+# Per-suite sweep directories: each compiles its own set so it never grades another suite's
+# build. See test/support/emitted-set.ts.
+**/.out-*/
+
+# `pnpm pack` writes here during the packaging oracle.
+*.tgz
+
+# IDE state. Five of these were committed; nothing about one machine's editor belongs in a
+# repository that is about to be public.
+.idea/
+.vscode/
+*.iml
+
+# Written by wiring.test.ts on every run. It was tracked, so a generated file was being
+# committed and reformatted.
+test/wiring/tsconfig.wiring.json
+
+# Redirected command output. `git add -A` swept one of these into a commit once, and
+# `portability.test.ts` caught it on the absolute path it carried.
+*.log
+
+# emitted sweeps
+test/.out*/
+test/**/.out/

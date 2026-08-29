@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - typespec-http-zod@0.24.0
+  - zod@4.5.2
