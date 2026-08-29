@@ -136,7 +136,7 @@ to the arms that existed at the time.**
 
 ## How this work is done
 
-`SESSION-HANDOVER.md` in the parent directory carries the estate's method. Two additions earned here:
+`SESSION-HANDOVER.md` in the parent directory carries the method these packages share. Two additions earned here:
 
 - **A plant must assert `changed !== original`, not `anchor in source`.** That distinction cost three
   false-green controls in this repository. A `.replace()` that matches nothing leaves the file

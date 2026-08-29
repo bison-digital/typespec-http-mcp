@@ -32,15 +32,6 @@ const LIBRARY_REFUSES: Readonly<Record<string, string>> = {
 	type__union__discriminated: "typespec-http-zod/undeclared-discriminator",
 };
 
-/**
- * Scenarios whose emitted output does not compile because of a defect **in the library**, not here.
- *
- * `special-words` declares a model named `as`, and the library emits `export type as = ...`, which
- * is a syntax error. Pinned by name so it cannot quietly grow, and so closing it upstream turns this
- * into a failure somebody has to explain.
- */
-const LIBRARY_EMITS_UNCOMPILABLE = ["special-words"];
-
 interface Scenario {
 	readonly name: string;
 	readonly dir: string;
@@ -160,11 +151,22 @@ describe("the corpus is large enough to be evidence", () => {
 });
 
 describe("every emitted file compiles", () => {
+	/**
+	 * **Every scenario, with no exceptions list.** There was one: `special-words` declares models named
+	 * `as` and `yield`, and the library emitted `export type as = ...` and `export type yield = ...`,
+	 * neither of which parses. It was pinned by name, and the pin failed the day the defect closed --
+	 * which is how it came to be closed rather than inherited.
+	 *
+	 * **The list is gone rather than empty.** A skip list with no entries is a loop that cannot run and
+	 * an arm that cannot fail, which is the shape this suite exists to refuse. Reintroducing a pin
+	 * means reintroducing the arm that asserts the pinned scenario is still broken.
+	 */
 	it("typechecks under strict, exactOptionalPropertyTypes, noUnusedLocals and types: []", () => {
 		const failures: string[] = [];
+		let compiled = 0;
 		for (const scenario of scenarios) {
 			if (!existsSync(join(scenario.dir, "mcp.gen.ts"))) continue;
-			if (LIBRARY_EMITS_UNCOMPILABLE.includes(scenario.name)) continue;
+			compiled += 1;
 			const output = typecheck(scenario.dir);
 			if (output !== "") {
 				const first = output.split("\n").find((line) => line.includes("error TS")) ?? output;
@@ -172,18 +174,8 @@ describe("every emitted file compiles", () => {
 			}
 		}
 		expect(failures).toEqual([]);
+		// Non-vacuity: a run that typechecked nothing would report no failures either.
+		expect(compiled).toBe(scenarios.length);
+		expect(compiled).toBeGreaterThanOrEqual(60);
 	}, 1_800_000);
-
-	/**
-	 * **The known-bad list must stay bad.** A scenario pinned here that starts compiling means the
-	 * upstream defect closed, and the pin should go -- which is a change somebody explains rather
-	 * than one that happens silently.
-	 */
-	it("the scenarios pinned as upstream-broken really are still broken", () => {
-		for (const name of LIBRARY_EMITS_UNCOMPILABLE) {
-			const scenario = scenarios.find((s) => s.name === name);
-			expect(scenario, name).toBeDefined();
-			expect(typecheck(scenario!.dir), `${name} now compiles - remove the pin`).not.toBe("");
-		}
-	}, 300_000);
 });
