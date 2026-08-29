@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -115,9 +115,22 @@ describe("the reference documents every diagnostic", () => {
 
 describe("the documentation set holds together", () => {
 	it("the README links to every document it names", () => {
-		for (const doc of ["docs/reference.md", "docs/oracles.md", "docs/measurements.md"]) {
+		for (const doc of [
+			"docs/reference.md",
+			"docs/oracles.md",
+			"docs/guides.md",
+			"docs/releasing.md",
+			"docs/measurements.md",
+		]) {
 			expect(readme).toContain(doc);
 		}
+	});
+
+	it("every document the README links to exists", () => {
+		const linked = [...readme.matchAll(/\]\((docs\/[^)]+)\)/g)].map((m) => m[1] ?? "");
+		expect(linked.length).toBeGreaterThanOrEqual(5);
+		const missing = linked.filter((doc) => !existsSync(join(packageRoot, doc)));
+		expect(missing).toEqual([]);
 	});
 
 	it("the changelog names the version the package publishes", () => {
