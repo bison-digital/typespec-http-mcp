@@ -251,8 +251,8 @@ export function renderTools(
 				intersectedValidators(entry).length === 0 && entry.route.bodyProperty === undefined;
 			const argument = parameterless ? "{}" : "{ ...args }";
 			const argumentName = parameterless ? "_args" : "args";
-			return `	if (deps.permits(${renderSecurity(entry.requirements)})) {
-		server.registerTool(
+			return `	{
+		const tool = server.registerTool(
 			${JSON.stringify(entry.toolName)},
 			{${title}${description}
 				inputSchema: ${inputSchemaName(entry)},${outputSchema}
@@ -268,7 +268,11 @@ export function renderTools(
 				);
 			},
 		);
-		registered.push(${JSON.stringify(entry.toolName)});
+		if (deps.permits(${renderSecurity(entry.requirements)})) {
+			registered.push(${JSON.stringify(entry.toolName)});
+		} else {
+			tool.remove();
+		}
 	}`;
 		})
 		.join("\n");

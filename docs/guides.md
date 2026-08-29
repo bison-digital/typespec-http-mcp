@@ -35,15 +35,28 @@ import { registerTools } from "./generated/mcp.gen.js";
 import { toolResult, statusOf, type ToolDeps } from "./generated/mcp-runtime.gen.js";
 import { handlers } from "./handlers.js"; // the same object your HTTP server gets
 
-const deps: ToolDeps = {
-	permits: () => true,
-	context: () => ({}),
-	noContext: () => ({ content: [{ type: "text", text: "no caller" }], isError: true }),
-	respond: (_context, declared, result) =>
-		toolResult(declared, statusOf(declared.arms, result), result),
-};
+/**
+ * The factory runs PER REQUEST and receives that request's verified identity, so `deps` is built
+ * here rather than once at module scope. Built once, `permits` would close over no caller and every
+ * client would see an identical tool list.
+ */
+const handler = createMcpHandler((context) => {
+	const scopes = context.authInfo?.scopes ?? [];
 
-const handler = createMcpHandler(() => {
+	const deps: ToolDeps = {
+		permits: (requirements) =>
+			requirements.length === 0 ||
+			requirements.some((requirement) =>
+				Object.entries(requirement).every(([, needed]) =>
+					needed.every((scope) => scopes.includes(scope)),
+				),
+			),
+		context: (serverContext) => serverContext.http?.authInfo ?? null,
+		noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
+		respond: (_serverContext, declared, result) =>
+			toolResult(declared, statusOf(declared.arms, result), result),
+	};
+
 	const server = new McpServer({ name: "widgets", version: "1.0.0" });
 	registerTools(server, () => handlers, deps);
 	return server;
@@ -55,6 +68,10 @@ export default {
 	},
 };
 ```
+
+`createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
+returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
+`TypeError: handler is not a function`.
 
 `createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
 returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives

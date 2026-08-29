@@ -188,3 +188,37 @@ describe("the documented wiring matches the SDK, not a wrapper around it", () =>
 		expect(guides).toContain("scopesSupported: [...SCOPES_SUPPORTED]");
 	});
 });
+
+/**
+ * **The wiring must be able to do what `permits` promises.**
+ *
+ * `permits` is consulted when the server is built, so the grant has to reach the factory. Both docs
+ * once showed `deps` at module scope behind a zero-argument factory: every caller then saw an
+ * identical tool list, and the per-caller filtering this emitter is built around was inert. The
+ * guide even said "build one per request" in prose directly below an example that could not.
+ */
+describe("the documented wiring can actually filter per caller", () => {
+	const docs = [
+		["README", readFileSync(join(packageRoot, "README.md"), "utf8")],
+		["guides", readFileSync(join(packageRoot, "docs", "guides.md"), "utf8")],
+	] as const;
+
+	it("passes the request context into the server factory", () => {
+		for (const [name, doc] of docs) {
+			expect(doc, `${name}: factory takes the context`).toMatch(
+				/createMcpHandler\(\(\s*context\s*[),]/,
+			);
+			// The shape that cannot see a caller.
+			expect(doc, `${name}: zero-argument factory`).not.toMatch(/createMcpHandler\(\(\)\s*=>/);
+		}
+	});
+
+	it("builds deps inside the factory, never once at module scope", () => {
+		for (const [name, doc] of docs) {
+			const factoryAt = doc.indexOf("createMcpHandler((context");
+			const depsAt = doc.indexOf("const deps: ToolDeps");
+			expect(depsAt, `${name}: deps is declared`).toBeGreaterThan(-1);
+			expect(depsAt, `${name}: deps built inside the factory`).toBeGreaterThan(factoryAt);
+		}
+	});
+});
