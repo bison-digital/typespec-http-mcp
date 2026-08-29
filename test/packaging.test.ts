@@ -142,3 +142,41 @@ describe("the package is configured to publish the way it claims", () => {
 		expect(selfImports).toEqual([]);
 	});
 });
+
+/**
+ * **A workflow that does not exist cannot refuse anything.**
+ *
+ * These were listed as done once while the directory was empty, and nothing said so. The release
+ * guard in particular is load-bearing: `--frozen-lockfile` exits 0 on a dangling link, so a release
+ * checkout with a `link:` override and no sibling on disk installs happily and fails four steps
+ * later as a wall of TS2307 that names the module but not the cause.
+ */
+describe("the workflows that gate a release exist and can refuse", () => {
+	const workflows = join(packageRoot, ".github", "workflows");
+
+	it("has both a CI and a release workflow", () => {
+		expect(existsSync(join(workflows, "ci.yml"))).toBe(true);
+		expect(existsSync(join(workflows, "release.yml"))).toBe(true);
+	});
+
+	it("the release workflow refuses a locally-linked first-party dependency", () => {
+		const release = readFileSync(join(workflows, "release.yml"), "utf8");
+		expect(release).toContain("Refuse to publish against a locally-linked dependency");
+		expect(release).toMatch(/link\|file/);
+		expect(release).toContain("exit 1");
+	});
+
+	it("the release workflow proves every peer the emitted runtime needs actually resolved", () => {
+		const release = readFileSync(join(workflows, "release.yml"), "utf8");
+		for (const dependency of ["typespec-http-zod", "@modelcontextprotocol/server"]) {
+			expect(release).toContain(`await import('${dependency}')`);
+		}
+	});
+
+	it("CI runs every gate this package claims, by name", () => {
+		const ci = readFileSync(join(workflows, "ci.yml"), "utf8");
+		for (const gate of ["build", "test", "typecheck", "lint", "format:check"]) {
+			expect(ci, gate).toContain(gate);
+		}
+	});
+});

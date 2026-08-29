@@ -7,7 +7,6 @@ import { emitHttpZod, type EmittedService } from "typespec-http-zod";
 import type { EmitterOptions } from "./lib.js";
 import { PACKAGE_NAME, reportDiagnostic } from "./lib.js";
 import { nameTools } from "./names.js";
-import { securityFor } from "./security.js";
 import { collisionsFor } from "./coexistence.js";
 import { refusalFor, warningsFor } from "./refusals.js";
 import { renderTools, type ToolEntry } from "./tools.js";
@@ -201,7 +200,13 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 				route,
 				names,
 				toolName,
-				requirements: securityFor(context.program, operation),
+				/**
+				 * **Read from the IR, not re-derived.** The library publishes the document's own
+				 * requirements as of 0.25.0; before that it published only a flat scope union and a
+				 * boolean, so both server emitters rebuilt this by hand from a third read of the
+				 * program. Two hand-written copies of one rule, neither compared against the other.
+				 */
+				requirements: route.security,
 				/**
 				 * **The description a model reads to decide whether to call this tool.**
 				 *

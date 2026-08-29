@@ -65,6 +65,37 @@ rather than that the emitter works: renaming one property in the consumer's hand
 property the contract does not publish -- fails with `TS2322`. Restored from a byte copy, `cmp`
 clean, green again.
 
+## The cross-package rehearsal, when the library moves too
+
+`typespec-http-mcp@0.1.0` needs `typespec-http-zod@0.25.0`, which introduced
+`EmittedRoute.security`. Neither is published, so the pair is rehearsed together: publish the
+library first, then this package **at its release version with the real dependency range**, then
+install into an empty directory.
+
+Verify the published manifest names a RANGE and not the local link:
+
+```bash
+curl -s http://localhost:4873/typespec-http-mcp | node -e "..."   # -> {"typespec-http-zod":"^0.25.0"}
+```
+
+Resolved in a clean room: `typespec-http-mcp@0.1.0`, `typespec-http-zod@0.25.0`, `zod@4.5.4`,
+`@modelcontextprotocol/server@2.0.0`. A spec declaring `@useAuth(BearerAuth | Scoped)` compiled to:
+
+```ts
+deps.permits([{ "BearerAuth": [] }, { "OAuth2Auth": ["widgets.read", "widgets.write"] }])
+annotations: { readOnlyHint: true, idempotentHint: true }      // GET
+annotations: { idempotentHint: true, destructiveHint: true }   // DELETE
+```
+
+`"BearerAuth": []` is the point: a scheme demanding no scopes. Under the library's previous IR that
+reached an emitter as an empty scope list, indistinguishable from an operation declaring no
+authentication at all.
+
+**While `overrides` in `pnpm-workspace.yaml` redirects the library to a local path, the release
+workflow refuses to publish.** `--frozen-lockfile` exits 0 on a dangling link, so a release checkout
+with no sibling on disk would install happily and fail four steps later as a wall of `TS2307`
+naming the module but not the cause.
+
 ## Release sequence
 
 1. Four gates, each checked by **exit code**, never by piping to `tail`.

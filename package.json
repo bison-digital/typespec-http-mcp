@@ -53,7 +53,7 @@
 		"format:check": "oxfmt --check"
 	},
 	"dependencies": {
-		"typespec-http-zod": "^0.24.0"
+		"typespec-http-zod": "^0.25.0"
 	},
 	"devDependencies": {
 		"@hono/zod-validator": "^0.9.0",
