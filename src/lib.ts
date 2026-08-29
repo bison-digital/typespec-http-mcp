@@ -198,6 +198,19 @@ const diagnostics = {
 		},
 	},
 	/**
+	 * A request body with no properties to merge into a tool's argument object.
+	 *
+	 * A tool takes ONE object. The document states the body separately from the parameters, so the
+	 * two are merged -- and a scalar, enum, union or array body has nothing to merge. Naming it under
+	 * an invented property would publish a contract no reader of the document could predict.
+	 */
+	"non-object-body": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' has a request body that is not an object (${"types"}), and an MCP tool's arguments are one object with named properties. Wrap it in a model with a named property, or exclude the operation with 'exclude-tags'.`,
+		},
+	},
+	/**
 	 * Every declared request media type is one a tool cannot send.
 	 *
 	 * Fires only where NO JSON media type is declared beside them. Where one is, the tool sends JSON
@@ -270,6 +283,7 @@ type Diagnostics = {
 	"tool-name-collision": { readonly default: CallableMessage<["first", "second", "name"]> };
 	"binary-tool-input": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
+	"non-object-body": { readonly default: CallableMessage<["operationId", "types"]> };
 	"headers-only-success": { readonly default: CallableMessage<["operationId"]> };
 	"tool-without-description": { readonly default: CallableMessage<["operationId"]> };
 	"shared-output-dir": { readonly default: CallableMessage<["emitter", "differing"]> };

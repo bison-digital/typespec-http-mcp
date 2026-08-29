@@ -1,3 +1,5 @@
+import { getDiscriminator, type Program, type Type } from "@typespec/compiler";
+import type { HttpOperation } from "@typespec/http";
 import type { EmittedRoute, RouteSchemaNames } from "typespec-http-zod";
 
 /**
@@ -21,7 +23,48 @@ function isMultipart(contentType: string): boolean {
 
 export type Refusal =
 	| { readonly kind: "binary-tool-input"; readonly types: string }
-	| { readonly kind: "non-json-request"; readonly types: string };
+	| { readonly kind: "non-json-request"; readonly types: string }
+	| { readonly kind: "non-object-body"; readonly types: string };
+
+/**
+ * Whether a request body can be MERGED into a tool's argument object.
+ *
+ * **A tool's arguments are one object, and the document states the body separately from the
+ * parameters, so the two are merged here.** A body that is a scalar, an enum, a union or an array
+ * has no properties to merge -- `@body body: string` produces a `ZodString`, and spreading its
+ * (absent) shape emits a file that does not compile. Naming it under an invented property would
+ * publish a contract no reader of the document could predict, and would break the shared handler
+ * signature, which takes the bare value.
+ *
+ * A body the library already NAMES is safe whatever its type: it is nested rather than merged.
+ */
+function isMergeableBody(program: Program, type: Type | undefined): boolean {
+	if (type === undefined) return true;
+	if (type.kind !== "Model") return false;
+	// An array is a Model with an integer-keyed indexer, and has no properties to merge.
+	if (type.indexer?.key?.name === "integer") return false;
+	/**
+	 * A model carrying `@discriminator` is emitted as a UNION of its variants, not as an object --
+	 * measured: `z.discriminatedUnion("kind", [...])`, which has no shape. Which variant arrived is
+	 * decided by a value, so there is no single set of properties to merge into the arguments.
+	 */
+	if (getDiscriminator(program, type) !== undefined) return false;
+	/**
+	 * **A TYPED index signature does not survive the merge.** A model carrying declared keys beside a
+	 * `Record<float32>` spreads its shape into the argument object, and the index type is left behind:
+	 * the merge publishes `{ [x: string]: unknown }` where the handler declares
+	 * `{ [x: string]: number }`. Measured on the corpus, that is a `TS2345` in a file the consumer
+	 * cannot edit.
+	 *
+	 * An `unknown`-valued indexer is ordinary model openness and merges without loss, so it is not
+	 * refused -- the same distinction the library draws between openness and a dictionary.
+	 */
+	for (let model: typeof type | undefined = type; model !== undefined; model = model.baseModel) {
+		const indexer = model.indexer;
+		if (indexer?.key?.name === "string" && indexer.value?.kind !== "Intrinsic") return false;
+	}
+	return true;
+}
 
 /**
  * Why this operation cannot be a tool, or `undefined` where it can.
@@ -31,7 +74,11 @@ export type Refusal =
  * way. The sibling server emitter refuses it and should; that the two emitters have different
  * refusal sets from one intermediate representation is the split working, not a gap.
  */
-export function refusalFor(route: EmittedRoute): Refusal | undefined {
+export function refusalFor(
+	program: Program,
+	route: EmittedRoute,
+	operation: HttpOperation,
+): Refusal | undefined {
 	const types = route.requestContentTypes;
 
 	/**
@@ -55,6 +102,17 @@ export function refusalFor(route: EmittedRoute): Refusal | undefined {
 	 */
 	if (types.length > 0 && !types.some(isJson)) {
 		return { kind: "non-json-request", types: types.join(", ") };
+	}
+
+	/**
+	 * A body the library named is nested under that name and is safe whatever its type. An unnamed
+	 * body is merged into the argument object, so it must have properties to merge.
+	 */
+	if (route.bodyProperty === undefined) {
+		const body = operation.parameters.body?.type;
+		if (!isMergeableBody(program, body)) {
+			return { kind: "non-object-body", types: body?.kind ?? "unknown" };
+		}
 	}
 	return undefined;
 }

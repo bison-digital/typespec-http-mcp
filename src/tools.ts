@@ -33,8 +33,16 @@ function renderAnnotations(annotations: ToolAnnotations): string {
 	return `{ ${entries.join(", ")} }`;
 }
 
-/** The two helper types the generated signatures need, byte-identical to the sibling emitter's. */
-const HELPERS = `/**
+/**
+ * The helper types the generated signatures need, byte-identical to the sibling emitter's.
+ *
+ * **Emitted only where a signature uses one.** A generated file has to pass the lint of whatever
+ * project it lands in, and `noUnusedLocals` is an error under the settings a consumer builds with:
+ * a service with no parameters anywhere never uses `Fields`, and one whose every operation returns
+ * `void` never uses `Produced`. Measured across the conformance corpus, that was 29 of 65 emitted
+ * files failing to compile.
+ */
+const FIELDS_HELPER = `/**
  * A validator's fields, or nothing at all when it declares none.
  *
  * **Zod 4 infers \`Record<string, never>\` for \`z.object({})\`.** That is a fair reading on its own -
@@ -45,7 +53,9 @@ const HELPERS = `/**
  */
 type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown : T) : T;
 
-/**
+`;
+
+const PRODUCED_HELPER = `/**
  * What a handler must SUPPLY, as opposed to what it receives.
  *
  * An index signature and \`readonly\` are true of an inferred type without being obligations on a
@@ -191,11 +201,36 @@ export function renderTools(
 		imported.add(entry.names.responses);
 	}
 
-	const runtimeImport = `import type { Awaitable, Ctx, McpServer, Result, ServerContext, ToolDeps } from ${JSON.stringify(options.runtimeModule)};`;
+	/**
+	 * Only the names a signature uses. `Awaitable`, `Ctx` and `Result` appear in the `Tools` methods,
+	 * so a service whose every operation is refused declares them and uses none -- `noUnusedLocals` is
+	 * an error in the settings a consumer builds with.
+	 */
+	const runtimeNames = ["McpServer", "ServerContext", "ToolDeps"];
+	if (entries.length > 0) runtimeNames.push("Awaitable", "Ctx", "Result");
+	const runtimeImport = `import type { ${runtimeNames.toSorted().join(", ")} } from ${JSON.stringify(
+		options.runtimeModule,
+	)};`;
 	const schemaImport =
 		imported.size === 0
 			? ""
 			: `import { ${[...imported].toSorted().join(", ")} } from "./schemas.gen.js";\n`;
+
+	/**
+	 * Which helpers any signature actually needs. Read from the IR rather than from the rendered
+	 * text: deciding anything by pattern-matching emitted output is the defect class this estate
+	 * exists to remove.
+	 */
+	const usesFields = entries.some((entry) => intersectedValidators(entry).length > 0);
+	const usesProduced = entries.some((entry) => entry.names.response !== undefined);
+	const helpers = `${usesFields ? FIELDS_HELPER : ""}${usesProduced ? PRODUCED_HELPER : ""}`;
+	/** Every tool declares an input schema, so `z` is used exactly when there is a tool. */
+	const usesZod = entries.length > 0;
+	/**
+	 * Every parameter is unread when nothing is registered, and `noUnusedParameters` is an error in
+	 * the settings a consumer builds with. The underscore says the omission is deliberate.
+	 */
+	const u = entries.length === 0 ? "_" : "";
 
 	const inputConsts = entries
 		.map((entry) => `const ${inputSchemaName(entry)} = ${inputSchemaOf(entry, options.sealed)};`)
@@ -278,10 +313,9 @@ export function renderTools(
 		.join("\n");
 
 	const text = `${generatedBanner(options.hint)}
-import { z } from "zod";
-${runtimeImport}
+${usesZod ? 'import { z } from "zod";\n' : ""}${runtimeImport}
 ${schemaImport}
-${HELPERS}
+${helpers}
 ${inputConsts}
 
 /**
@@ -349,9 +383,9 @@ export const TOOL_NAMES = [${ordered.map((entry) => JSON.stringify(entry.toolNam
  * can observe a grant that selected nothing.
  */
 export function registerTools<T extends Tools>(
-	server: McpServer,
-	handlersFor: (context: ServerContext) => ToolsExhaustive<T>,
-	deps: ToolDeps,
+	${u}server: McpServer,
+	${u}handlersFor: (context: ServerContext) => ToolsExhaustive<T>,
+	${u}deps: ToolDeps,
 ): readonly string[] {
 	const registered: string[] = [];
 ${registrations}

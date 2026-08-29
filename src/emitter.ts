@@ -174,7 +174,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 			if (names === undefined || operation === undefined) continue;
 
 			/** A refusal removes the operation from the surface, so it is counted, never skipped. */
-			const refusal = refusalFor(route);
+			const refusal = refusalFor(context.program, route, operation);
 			if (refusal !== undefined) {
 				refused += 1;
 				reportDiagnostic(context.program, {

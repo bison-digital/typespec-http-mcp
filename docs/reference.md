@@ -140,6 +140,21 @@ context window.
 Remedy: exclude the operation with `exclude-tags`, or declare a JSON-bodied operation for the tool
 surface.
 
+### `non-object-body`
+
+The request body is a scalar, an enum, a union or an array, so it has no properties to merge into a
+tool's argument object.
+
+A tool takes **one object**. The document states the body separately from the parameters, so this
+emitter merges them -- and there is nothing to merge from `@body body: string`. Naming it under an
+invented property would publish a contract no reader of the document could predict, and would break
+the handler signature, which receives the bare value.
+
+A body the library already names -- a dictionary body, for instance -- is nested rather than merged
+and is never refused.
+
+Remedy: wrap it in a model with a named property, or exclude the operation with `exclude-tags`.
+
 ### `non-json-request`
 
 Every declared request media type is one a tool cannot send. Fires only where **no** JSON media type
