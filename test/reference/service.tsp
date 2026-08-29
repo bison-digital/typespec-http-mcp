@@ -22,12 +22,12 @@ model Widget {
   id: string;
   name: string;
   /** Defaulted, so a caller may omit it and a handler always receives it. */
-  colour: string = "grey";
+  colour?: string = "grey";
 }
 
 model NewWidget {
   name: string;
-  colour: string = "grey";
+  colour?: string = "grey";
 }
 
 model WidgetPage {
