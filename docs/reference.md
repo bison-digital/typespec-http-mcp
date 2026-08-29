@@ -107,6 +107,44 @@ not -- `$` arrives through a template instantiation -- so this fires for real sp
 
 Remedy: name the operation with `@operationId("...")`, or shorten `tool-prefix`.
 
+### `binary-tool-input`
+
+The request body is raw bytes, a stream, or `multipart/form-data`. A tool's arguments are JSON.
+
+**Refused rather than approximated.** Base64-ing a body into a string argument would publish a
+contract no reader of the document could predict, and would push a whole upload through a model's
+context window.
+
+Remedy: exclude the operation with `exclude-tags`, or declare a JSON-bodied operation for the tool
+surface.
+
+### `non-json-request`
+
+Every declared request media type is one a tool cannot send. Fires only where **no** JSON media type
+is declared beside them -- where one is, the tool sends JSON and the others are simply unreachable
+from MCP, which is not a defect.
+
+Remedy: declare `application/json` alongside them.
+
+### `headers-only-success`
+
+The success response carries headers and no body, so the tool returns nothing a model can read:
+response headers are carried in `_meta`, which a model does not see.
+
+**Not a refusal** -- the tool is still emitted, because the operation is callable and its effect may
+be the point.
+
+Remedy: declare the value in the response body.
+
+### `tool-without-description`
+
+A selected operation has neither `@doc` nor `@summary`. A model chooses tools by their description.
+
+Fires only for operations that became tools: an opinion about an operation that is not a tool is not
+this emitter's business.
+
+Remedy: add a doc comment, or `@summary`.
+
 ### `tool-name-collision`
 
 Two selected operations produce one tool name.

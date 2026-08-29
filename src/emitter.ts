@@ -8,6 +8,7 @@ import type { EmitterOptions } from "./lib.js";
 import { reportDiagnostic } from "./lib.js";
 import { nameTools } from "./names.js";
 import { securityFor } from "./security.js";
+import { refusalFor, warningsFor } from "./refusals.js";
 import { renderTools, type ToolEntry } from "./tools.js";
 import { httpOperationFor, selectTools } from "./select.js";
 
@@ -148,12 +149,41 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		}
 
 		const entries: ToolEntry[] = [];
+		/**
+		 * Refusals counted as they happen, so the invariant below can be arithmetic rather than a
+		 * guess. A silent drop is then impossible: the numbers stop adding up.
+		 */
+		let refused = named.unrepresentable.length + named.collisions.length * 2;
 		for (const route of emitted.routes) {
 			const toolName = named.names.get(route.operationId);
 			if (toolName === undefined) continue;
 			const names = emitted.schemaNames.get(route.operationId);
 			const operation = httpOperationFor(emitted.service, route);
 			if (names === undefined || operation === undefined) continue;
+
+			/** A refusal removes the operation from the surface, so it is counted, never skipped. */
+			const refusal = refusalFor(route);
+			if (refusal !== undefined) {
+				refused += 1;
+				reportDiagnostic(context.program, {
+					code: refusal.kind,
+					target: targetFor(emitted, route.operationId),
+					format: { operationId: route.operationId, types: refusal.types },
+				});
+				continue;
+			}
+
+			const description = getDoc(context.program, operation.operation);
+			const title = getSummary(context.program, operation.operation);
+			const described = description !== undefined || title !== undefined;
+			for (const warning of warningsFor(route, names, described)) {
+				reportDiagnostic(context.program, {
+					code: warning,
+					target: targetFor(emitted, route.operationId),
+					format: { operationId: route.operationId },
+				});
+			}
+
 			entries.push({
 				route,
 				names,
@@ -165,7 +195,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 				 * `@doc` rather than `@summary`: the summary becomes the tool's `title`, which is for
 				 * display. Both are published by `@typespec/openapi3`, so neither is a new fact.
 				 */
-				description: getDoc(context.program, operation.operation),
+				description,
 				/**
 				 * **Read from `@summary` directly, not from `EmittedRoute.summary`.**
 				 *
@@ -174,7 +204,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 				 * the `description`, so every tool would carry the same sentence twice in a payload the
 				 * model reads. A title is for display and is absent unless the spec declares one.
 				 */
-				title: getSummary(context.program, operation.operation),
+				title,
 			});
 		}
 
@@ -183,10 +213,9 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		 * the file back.** Deciding anything by pattern-matching emitted text is how this estate
 		 * acquired a class of defect it then had to hunt for.
 		 */
-		const refusedCount = named.unrepresentable.length + named.collisions.length * 2;
-		if (entries.length + refusedCount !== selection.selected.length) {
+		if (entries.length + refused !== selection.selected.length) {
 			throw new Error(
-				`typespec-http-mcp internal invariant: ${entries.length} emitted + ${refusedCount} refused ` +
+				`typespec-http-mcp internal invariant: ${entries.length} emitted + ${refused} refused ` +
 					`!== ${selection.selected.length} selected for '${serviceName}'`,
 			);
 		}

@@ -88,12 +88,23 @@ describe("the reference documents every diagnostic", () => {
 	 * that the emitter will tell them, and it will not. Checked by call site rather than by trust.
 	 */
 	it("declares no diagnostic that has no call site", () => {
+		/**
+		 * **`lib.ts` is excluded, and that exclusion is what makes this arm mean anything.** Every code
+		 * appears there by definition -- it is where they are declared -- so scanning it would make the
+		 * check pass for a diagnostic nothing can ever raise.
+		 *
+		 * The match is on the quoted code rather than on `code: "..."` literally, because a refusal
+		 * that dispatches through a typed union (`{ kind: "binary-tool-input" }`) is a legitimate call
+		 * site whose code is still a literal a reader and a grep can both see.
+		 */
 		const sources = readdirSync(join(packageRoot, "src"))
-			.filter((name) => name.endsWith(".ts"))
+			.filter((name) => name.endsWith(".ts") && name !== "lib.ts")
 			.map((name) => readFileSync(join(packageRoot, "src", name), "utf8"))
 			.join("\n");
-		const unreachable = codes.filter((code) => !sources.includes(`code: "${code}"`));
+		const unreachable = codes.filter((code) => !sources.includes(`"${code}"`));
 		expect(unreachable).toEqual([]);
+		// Non-vacuity: an empty source set would report nothing unreachable.
+		expect(sources.length).toBeGreaterThanOrEqual(2000);
 	});
 
 	it("states that every refusal is a warning, and why", () => {

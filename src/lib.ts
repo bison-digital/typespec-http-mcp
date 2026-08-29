@@ -170,6 +170,59 @@ const diagnostics = {
 		},
 	},
 	/**
+	 * A request body an MCP tool argument cannot carry.
+	 *
+	 * A tool's arguments are JSON. A raw `bytes` body, a stream, or a `multipart/form-data` upload is
+	 * not JSON and cannot become one without inventing an encoding the document never states.
+	 * **Refused rather than approximated**: base64-ing a body into a string argument would publish a
+	 * contract no reader of the document could predict, and would put a whole upload through a model's
+	 * context window.
+	 */
+	"binary-tool-input": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' takes a binary or multipart request body (${"types"}), which an MCP tool argument cannot carry: tool arguments are JSON. Exclude it with 'exclude-tags', or declare a JSON-bodied operation for the tool surface.`,
+		},
+	},
+	/**
+	 * Every declared request media type is one a tool cannot send.
+	 *
+	 * Fires only where NO JSON media type is declared beside them. Where one is, the tool sends JSON
+	 * and the others are simply unreachable from MCP, which is not a defect worth a diagnostic.
+	 */
+	"non-json-request": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' declares only non-JSON request media types (${"types"}), and an MCP tool sends JSON. Declare 'application/json' alongside them.`,
+		},
+	},
+	/**
+	 * A success that carries headers and no body.
+	 *
+	 * The tool would return nothing a model can read: response headers go to `_meta`, which a model
+	 * does not see. **Not a refusal** -- the tool is still emitted, because the operation is callable
+	 * and its effect may be the point. It is a warning because the value is invisible where it
+	 * matters.
+	 */
+	"headers-only-success": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers with response headers and no body, so its tool returns nothing a model can read: headers are carried in '_meta', which a model does not see. Declare the value in the response body.`,
+		},
+	},
+	/**
+	 * A selected operation with nothing for a model to read.
+	 *
+	 * A model chooses a tool by its description. Fires only for SELECTED operations: an opinion about
+	 * an operation that is not a tool is not this emitter's business.
+	 */
+	"tool-without-description": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' becomes a tool with no description. A model chooses tools by their description, so an undescribed one is unlikely to be called correctly. Add a doc comment, or '@summary'.`,
+		},
+	},
+	/**
 	 * Two selected operations produce one tool name.
 	 *
 	 * **BOTH are refused, and that is deliberate.** Keeping one and dropping the other would make the
@@ -202,6 +255,10 @@ type Diagnostics = {
 	};
 	"unrepresentable-tool-name": { readonly default: CallableMessage<["name"]> };
 	"tool-name-collision": { readonly default: CallableMessage<["first", "second", "name"]> };
+	"binary-tool-input": { readonly default: CallableMessage<["operationId", "types"]> };
+	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
+	"headers-only-success": { readonly default: CallableMessage<["operationId"]> };
+	"tool-without-description": { readonly default: CallableMessage<["operationId"]> };
 };
 
 export const $lib: TypeSpecLibrary<Diagnostics, EmitterOptions> = createTypeSpecLibrary({
