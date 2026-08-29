@@ -33,3 +33,7 @@ test/**/.out/
 test/agreement/tsconfig.agreement.json
 
 test/.out-corpus/
+
+# Miniflare's local state, written beside the Worker whenever the socket suite starts one. Not
+# output this package produces, and not something a checkout should carry.
+**/.wrangler/

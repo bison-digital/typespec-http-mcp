@@ -13,3 +13,14 @@ minimumReleaseAgeExclude:
   - typespec-http-zod@0.24.0
   - zod@4.5.2
   - typespec-hono@0.21.0
+
+# `wrangler` bundles with esbuild and serves with workerd, and both need their install scripts to
+# run. Named one at a time rather than allowed as a class: pnpm blocks build scripts by default, and
+# the two that run here should be two somebody chose.
+#
+# **The key is `allowBuilds`, not `onlyBuiltDependencies`.** pnpm 11 renamed it, and the old key is
+# accepted in the file and silently does nothing -- `pnpm install` keeps exiting 1 with
+# ERR_PNPM_IGNORED_BUILDS while the config looks right. The same trap as `overrides` above.
+allowBuilds:
+  esbuild: true
+  workerd: true

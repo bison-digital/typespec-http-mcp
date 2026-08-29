@@ -47,6 +47,7 @@
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
 		"test": "tsc -p tsconfig.build.json && vitest run",
+		"test:unit": "tsc -p tsconfig.build.json && vitest run --project unit",
 		"typecheck": "tsc -p tsconfig.json",
 		"lint": "oxlint src/ test/",
 		"format": "oxfmt",
@@ -74,6 +75,7 @@
 		"typespec-hono": "0.21.0",
 		"typespec-http-mcp": "link:.",
 		"vitest": "^4.1.9",
+		"wrangler": "^4.127.1",
 		"zod": "^4.5.2"
 	},
 	"peerDependencies": {

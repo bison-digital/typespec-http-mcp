@@ -74,6 +74,26 @@ describe("runtime.ts is consumer code and must stay that way", () => {
 		expect(externalsOf("runtime.ts")).toEqual(["@modelcontextprotocol/server", "zod"]);
 	});
 
+	/**
+	 * **And no Node builtin, which the closure above is written not to see.**
+	 *
+	 * `externalClosure` skips every `node:` specifier, because `emitter.ts` legitimately reads the
+	 * filesystem and grading it for that would be noise. That exclusion is exactly wrong for this one
+	 * module: it is copied verbatim into a consumer's Workers build, where `node:fs` is
+	 * `Uncaught Error: No such module "node:fs"` unless they set `nodejs_compat` -- a flag this
+	 * package must not oblige anybody to set.
+	 *
+	 * **Measured, and it is why this arm exists.** `node:fs` was planted in `src/runtime.ts` and this
+	 * suite stayed green on all ten arms while `test/socket/socket.test.ts` failed on five. The rule
+	 * whose whole purpose is "only what a consumer installs" could not see the one specifier class
+	 * that breaks a deploy.
+	 */
+	it("imports no Node builtin, because a Worker has none without a compatibility flag", () => {
+		expect(importsOf("runtime.ts").filter((name) => name.startsWith("node:"))).toEqual([]);
+		// Non-vacuity: a file this read as empty would report no builtins either.
+		expect(importsOf("runtime.ts").length).toBeGreaterThanOrEqual(2);
+	});
+
 	it("imports no other module of this package, so copying it out is lossless", () => {
 		expect(importsOf("runtime.ts").filter((s) => s.startsWith("./"))).toEqual([]);
 	});
