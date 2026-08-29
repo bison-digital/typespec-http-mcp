@@ -77,18 +77,20 @@ export async function compileFixture(
 	rmSync(outDir, { recursive: true, force: true });
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
-		emit: options.withDocument === true
-			? ["typespec-http-mcp", "@typespec/openapi3"]
-			: ["typespec-http-mcp"],
+		emit:
+			options.withDocument === true
+				? ["typespec-http-mcp", "@typespec/openapi3"]
+				: ["typespec-http-mcp"],
 		options: {
 			"@typespec/openapi3": { "emitter-output-dir": join(outDir, "openapi"), "file-type": "json" },
-			"typespec-http-mcp": options.bare === true
-				? { "emitter-output-dir": outDir, ...(options.extraOptions ?? {}) }
-				: {
-					"emitter-output-dir": outDir,
-					"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
-					...(options.extraOptions ?? {}),
-				},
+			"typespec-http-mcp":
+				options.bare === true
+					? { "emitter-output-dir": outDir, ...(options.extraOptions ?? {}) }
+					: {
+							"emitter-output-dir": outDir,
+							"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
+							...(options.extraOptions ?? {}),
+						},
 		},
 	});
 	return {

@@ -80,7 +80,7 @@ describe("nothing this package ships names one machine's filesystem", () => {
 		// compile from whatever options the consumer set, and are then committed to their repository.
 		expect(emitted.length).toBeGreaterThanOrEqual(1);
 		const offenders = emitted.flatMap((file) =>
-			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8"), MACHINE_PATHS)
+			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8"), MACHINE_PATHS),
 		);
 		expect(offenders).toEqual([]);
 	});
@@ -88,7 +88,7 @@ describe("nothing this package ships names one machine's filesystem", () => {
 	it("names no host, port or transport in anything the emitter GENERATES", () => {
 		expect(emitted.length).toBeGreaterThanOrEqual(1);
 		const offenders = emitted.flatMap((file) =>
-			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8"), TRANSPORT_LITERALS)
+			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8"), TRANSPORT_LITERALS),
 		);
 		expect(offenders).toEqual([]);
 	});

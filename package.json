@@ -24,8 +24,7 @@
 	"files": [
 		"!dist/test/**",
 		"dist/**",
-		"lib/*.tsp",
-		"src/runtime.ts"
+		"lib/*.tsp"
 	],
 	"type": "module",
 	"main": "dist/src/index.js",
@@ -34,10 +33,6 @@
 			"typespec": "./lib/main.tsp",
 			"types": "./dist/src/index.d.ts",
 			"default": "./dist/src/index.js"
-		},
-		"./runtime": {
-			"types": "./dist/src/runtime.d.ts",
-			"default": "./dist/src/runtime.js"
 		}
 	},
 	"publishConfig": {

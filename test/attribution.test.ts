@@ -38,14 +38,20 @@ const ATTRIBUTION = [
 ];
 
 function git(...args: readonly string[]): string {
-	return execFileSync("git", args, { cwd: packageRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+	return execFileSync("git", args, {
+		cwd: packageRoot,
+		encoding: "utf8",
+		maxBuffer: 64 * 1024 * 1024,
+	});
 }
 
 const TEXT = /\.(ts|tsp|md|json|jsonc|ya?ml|txt)$/;
 const SELF = "test/attribution.test.ts";
 
 describe("the package credits no tool for the work", () => {
-	const files = git("ls-files").split("\n").filter((n) => n !== "" && TEXT.test(n) && n !== SELF);
+	const files = git("ls-files")
+		.split("\n")
+		.filter((n) => n !== "" && TEXT.test(n) && n !== SELF);
 
 	it("has files and history to inspect at all", () => {
 		expect(files.length).toBeGreaterThanOrEqual(10);
@@ -74,7 +80,9 @@ describe("the package credits no tool for the work", () => {
 
 	it("carries exactly one identity, the one this project publishes under", () => {
 		const identities = new Set(
-			git("log", "--all", "--format=%ae%n%ce").split("\n").filter((line) => line !== ""),
+			git("log", "--all", "--format=%ae%n%ce")
+				.split("\n")
+				.filter((line) => line !== ""),
 		);
 		expect([...identities]).toEqual([PUBLISHED_IDENTITY]);
 	});
