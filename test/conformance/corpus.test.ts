@@ -32,6 +32,22 @@ const LIBRARY_REFUSES: Readonly<Record<string, string>> = {
 	type__union__discriminated: "typespec-http-zod/undeclared-discriminator",
 };
 
+/**
+ * Scenarios where THIS emitter refuses every operation, so the surface is empty, with the refusal.
+ *
+ * **A scenario can go to zero tools without failing anything, and two already have.** The floor
+ * below is corpus-wide, so a surface that collapsed would be absorbed by the other 63; the emit arm
+ * only asks whether a file was written, and a file is written either way. Named rather than
+ * tolerated, so a third one is a change somebody explains.
+ *
+ * Both are correct. A multipart body cannot be a tool argument, and `@body body: string` is not an
+ * object, so neither can be merged into an argument schema that MCP will accept.
+ */
+const EMITTER_REFUSES_EVERY_OPERATION: Readonly<Record<string, string>> = {
+	payload__multipart: "typespec-http-mcp/binary-tool-input",
+	versioning__returnTypeChangedFrom: "typespec-http-mcp/non-object-body",
+};
+
 interface Scenario {
 	readonly name: string;
 	readonly dir: string;
@@ -137,6 +153,31 @@ describe("the corpus is large enough to be evidence", () => {
 		expect(failing.toSorted()).toEqual(Object.keys(LIBRARY_REFUSES).toSorted());
 	});
 
+	/**
+	 * **Every scenario whose surface is empty is named here, with the refusal that emptied it.**
+	 *
+	 * Asserted in BOTH directions: a scenario that stops emitting tools must be listed, and one that
+	 * starts emitting them again must be removed. Counting would let a new collapse hide behind a
+	 * scenario that recovered.
+	 */
+	it("empties exactly the scenarios named, under the refusals named", () => {
+		const empty = scenarios
+			.filter((scenario) => {
+				const file = join(scenario.dir, "mcp.gen.ts");
+				return existsSync(file) && /TOOL_NAMES = \[\] as const/.test(readFileSync(file, "utf8"));
+			})
+			.map((scenario) => scenario.name);
+		expect(empty.toSorted()).toEqual(Object.keys(EMITTER_REFUSES_EVERY_OPERATION).toSorted());
+
+		for (const [name, code] of Object.entries(EMITTER_REFUSES_EVERY_OPERATION)) {
+			const scenario = scenarios.find((s) => s.name === name);
+			expect(
+				scenario?.diagnostics.map((d) => d.code),
+				name,
+			).toContain(code);
+		}
+	});
+
 	it("produces a tool surface worth grading", () => {
 		let tools = 0;
 		for (const scenario of scenarios) {
@@ -178,4 +219,84 @@ describe("every emitted file compiles", () => {
 		expect(compiled).toBe(scenarios.length);
 		expect(compiled).toBeGreaterThanOrEqual(60);
 	}, 1_800_000);
+});
+
+/**
+ * **What a VERSIONED spec emits, as opposed to whether it compiles.**
+ *
+ * Seven corpus scenarios are versioned and every one of them compiles, which was the whole of what
+ * this suite said about them. Compiling proves the file parses; it says nothing about WHICH version
+ * of a changing surface the file describes, and that is the only interesting question a versioned
+ * spec asks. An emitter that emitted the union of every version -- a tool for an operation the
+ * served version has removed -- would compile perfectly.
+ *
+ * The answer, measured rather than assumed: **the emitter emits the LATEST version's surface**,
+ * because that is the projection `typespec-http-zod` hands it. These arms pin that.
+ */
+function toolNamesOf(scenario: Scenario): string[] {
+	const source = readFileSync(join(scenario.dir, "mcp.gen.ts"), "utf8");
+	const match = /TOOL_NAMES = \[([^\]]*)\]/.exec(source);
+	return [...(match?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? "").toSorted();
+}
+
+const scenarioNamed = (name: string): Scenario => {
+	const found = scenarios.find((scenario) => scenario.name === name);
+	if (found === undefined) throw new Error(`the corpus no longer declares ${name}`);
+	return found;
+};
+
+describe("a versioned spec emits the latest version's surface, not the union of all of them", () => {
+	/**
+	 * `op v1` and `interface InterfaceV1` are both `@removed(Versions.v2)`. An emitter working from
+	 * the union would still name them; one working from the latest projection does not.
+	 */
+	it("drops what the latest version removed", () => {
+		const tools = toolNamesOf(scenarioNamed("versioning__removed"));
+		expect(tools).toEqual(["modelV3", "v2"]);
+		expect(tools).not.toContain("v1");
+		expect(tools.some((name) => name.startsWith("InterfaceV1"))).toBe(false);
+	});
+
+	/**
+	 * **A parameter removed at the served version must not survive as a tool argument.**
+	 *
+	 * `op v2` declares `@removed(Versions.v2) @query param: string`. A tool that still advertised
+	 * `param` would invite a client to send something the service rejects -- and unlike a missing
+	 * tool, nothing about it fails to compile.
+	 */
+	it("drops a parameter the latest version removed from the tool's input", () => {
+		const source = readFileSync(
+			join(scenarioNamed("versioning__removed").dir, "mcp.gen.ts"),
+			"utf8",
+		);
+		const input = /const v2Input = ([^;]+);/.exec(source)?.[1] ?? "";
+		// Non-vacuity: a regex that matched nothing would contain no "param" either.
+		expect(input).not.toBe("");
+		expect(input).not.toContain("param");
+	});
+
+	it("keeps what the latest version added", () => {
+		expect(toolNamesOf(scenarioNamed("versioning__added"))).toEqual([
+			"InterfaceV2_v2InInterface",
+			"v1",
+			"v2",
+		]);
+	});
+
+	/** The NEW name, never the old one, or a client would call something that is not there. */
+	it("names a renamed operation by its current name", () => {
+		const tools = toolNamesOf(scenarioNamed("versioning__renamedFrom"));
+		expect(tools).toEqual(["NewInterface_newOpInNewInterface", "newOp"]);
+		expect(tools.some((name) => name.toLowerCase().includes("old"))).toBe(false);
+	});
+
+	/** A versioned SERVER is a different axis from a versioned type, and it must not lose tools. */
+	it("emits every operation of a versioned server", () => {
+		expect(toolNamesOf(scenarioNamed("server__versions__versioned"))).toEqual([
+			"withPathApiVersion",
+			"withQueryApiVersion",
+			"withQueryOldApiVersion",
+			"withoutApiVersion",
+		]);
+	});
 });
