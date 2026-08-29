@@ -24,6 +24,9 @@ adding a row, then planting a defect and confirming something goes red.
 | a refusal                                 | the operation's absence from `TOOL_NAMES`, and a diagnostic naming it                                   | `test/refusals/refusals.test.ts`                                                                                                                |
 | a warning                                 | the operation's PRESENCE in `TOOL_NAMES`                                                                | `test/refusals/refusals.test.ts` -- a quality complaint must not delete a tool                                                                  |
 | `emitted + refused === selected`          | itself, with both terms non-zero                                                                        | asserted in the emitter as a throw; `test/refusals/refusals.test.ts` proves the arithmetic is not `N + 0 === N`                                 |
+| `Tools` signatures                        | the sibling server emitter's `Operations`, per operation                                                | `test/agreement/agreement.test.ts` -- one unannotated handler object compiled through both, plus `Identical<>` per operation                    |
+| `keyof Tools`                             | `keyof Operations`                                                                                      | `test/agreement/agreement.test.ts`                                                                                                              |
+| the agreement fixture                     | being unable to cheat                                                                                   | `test/agreement/agreement.test.ts` -- no cast, one handler object, no annotation                                                                |
 | every diagnostic and option               | `docs/reference.md`, both directions                                                                    | `test/documentation.test.ts`                                                                                                                    |
 | every tracked file                        | naming no private codebase, and no host outside an allowlist                                            | `test/provenance.test.ts`, with a positive control proving the scanner still sees                                                               |
 | the publisher's identity                  | appearing only in the files that must carry it                                                          | `test/provenance.test.ts`                                                                                                                       |
@@ -41,7 +44,6 @@ produces the artefact it grades.
   derivation and the document's declared failures cannot part company.
 - `inputSchema` against the parameters and request body `@typespec/openapi3` publishes.
 - `outputSchema` against the document's success response body.
-- The handler signatures against a generated HTTP server's, compiled as one object through both.
 - The published `tools/list` payload against a budget decomposed by source.
 - Wire openness against the tool's actual behaviour.
 
@@ -57,3 +59,23 @@ no-ops looks exactly like a guard that holds.
 
 So a plant either asserts the text changed, or fails loudly. Re-run with that assertion, the same
 control turned red naming five specific disagreements.
+
+## Why the agreement arm asserts identity, not assignability
+
+One handler object satisfying both `Operations` and `Tools` proves the object is assignable to each.
+It does **not** prove the two interfaces are the same.
+
+Measured, by planting a widened MCP input (`{ surplus?: string }` intersected into every handler
+input): the handler object stayed assignable to both surfaces and `registerRoutes` and
+`registerTools` both accepted it. Nothing about the value-level half went red. The `Identical<>`
+assertions caught it -- `TS2344: Type 'false' does not satisfy the constraint 'true'` on five
+operations.
+
+So an arm written only as "one object satisfies both" would have passed while the two surfaces
+disagreed about what a handler receives. Note the trap the library's own docblock records:
+`Identical<A, B> & true` merely produces an odd type, and **only a constraint violation is an
+error** -- which is what `MustHold<T extends true>` exists for.
+
+The other control, a handler for an operation the spec never declared, reddens **both** guards at
+once: the sibling's `Exhaustive` and this package's `ToolsExhaustive`. That is the removal guard
+surviving in both surfaces from one object, which is the design claim stated as a compile error.

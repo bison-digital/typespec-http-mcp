@@ -1,12 +1,13 @@
 {
 	"$schema": "./node_modules/oxfmt/configuration_schema.json",
 	"ignorePatterns": [
-		"**/.out/**",
 		"**/.out-*/**",
-		"dist/**",
-		"test/reference/documents/**",
+		"**/.out/**",
 		"**/test/reference/documents/**",
-		"**/tsconfig.wiring.json"
+		"**/tsconfig.agreement.json",
+		"**/tsconfig.wiring.json",
+		"dist/**",
+		"test/reference/documents/**"
 	],
 	"useTabs": true,
 	"printWidth": 100,
