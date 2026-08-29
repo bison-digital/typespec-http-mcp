@@ -106,6 +106,10 @@ cannot publish, so the emitted surface would enforce a rule no reader of the con
 - [`docs/releasing.md`](docs/releasing.md) -- the local-registry rehearsal and the proof this package passed.
 - [`docs/measurements.md`](docs/measurements.md) -- the probes the design rests on.
 
+## Working record
+
+[`HANDOVER.md`](HANDOVER.md) -- state, the traps, and what is open.
+
 ## Licence
 
 MIT.
