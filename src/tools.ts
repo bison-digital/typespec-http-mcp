@@ -208,6 +208,10 @@ export function renderTools(
 		})
 		.join("\n");
 
+	/** Every scope any selected operation demands, de-duplicated and ordered. */
+	const scopes = [...new Set(entries.flatMap((entry) => [...entry.route.scopes]))].toSorted();
+	const scopesLiteral = `[${scopes.map((scope) => JSON.stringify(scope)).join(", ")}]`;
+
 	const declaredUnion =
 		declaredOperationIds.length === 0
 			? "never"
@@ -309,6 +313,21 @@ export type DeclaredOperationId = ${declaredUnion};
  * annotation, \`Exclude<keyof T, DeclaredOperationId>\` becomes \`never\`, and this guard evaporates.
  */
 export type ToolsExhaustive<T> = T & Record<Exclude<keyof T, DeclaredOperationId>, never>;
+
+/**
+ * Every scope any selected operation demands, for the Protected Resource Metadata document.
+ *
+ * **The one authentication fact this emitter can state that the SDK cannot.** RFC 9728's
+ * \`scopes_supported\` is what a client reads to know which scopes to ask an Authorization Server
+ * for, and it is exactly the union of what the spec's \`@useAuth\` declares. Everything else about
+ * authentication -- verifying a token, building the metadata document, answering a 401 with a
+ * \`WWW-Authenticate\` challenge -- is the SDK's, and is not reimplemented here. Pass this to
+ * \`buildOAuthProtectedResourceMetadata\`'s \`scopesSupported\`.
+ *
+ * Empty where the service declares no scopes, which is a fact rather than an absence: a bearer or
+ * api-key scheme demands none.
+ */
+export const SCOPES_SUPPORTED = ${scopesLiteral} as const;
 
 /** Every tool this file registers, in the order it registers them. */
 export const TOOL_NAMES = [${ordered.map((entry) => JSON.stringify(entry.toolName)).join(", ")}] as const;

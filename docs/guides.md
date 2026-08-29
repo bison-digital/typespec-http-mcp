@@ -33,12 +33,7 @@ the tool definitions and the dispatch into your handlers, and nothing else.
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import { registerTools } from "./generated/mcp.gen.js";
 import { toolResult, statusOf, type ToolDeps } from "./generated/mcp-runtime.gen.js";
-
-const handlers = {
-	Widgets_read: (_ctx, input) => widgets.get(input.widgetId),
-	Widgets_create: (_ctx, input) => save(input),
-	Widgets_remove: (_ctx, input) => widgets.delete(input.widgetId),
-};
+import { handlers } from "./handlers.js"; // the same object your HTTP server gets
 
 const deps: ToolDeps = {
 	permits: () => true,
@@ -48,16 +43,22 @@ const deps: ToolDeps = {
 		toolResult(declared, statusOf(declared.arms, result), result),
 };
 
+const handler = createMcpHandler(() => {
+	const server = new McpServer({ name: "widgets", version: "1.0.0" });
+	registerTools(server, () => handlers, deps);
+	return server;
+});
+
 export default {
-	fetch(request, env, ctx) {
-		return createMcpHandler(() => {
-			const server = new McpServer({ name: "widgets", version: "1.0.0" });
-			registerTools(server, () => handlers, deps);
-			return server;
-		})(request, env, ctx);
+	fetch(request: Request): Promise<Response> {
+		return handler.fetch(request);
 	},
 };
 ```
+
+`createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
+returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
+`TypeError: handler is not a function`.
 
 **Write the handler factory unannotated.** Annotating it widens the value, and the check that refuses
 a handler for an operation the spec no longer declares evaporates.
@@ -65,6 +66,89 @@ a handler for an operation the spec no longer declares evaporates.
 An application with no result envelope of its own writes exactly the `respond` above and is finished.
 One that has an envelope unwraps it there -- that is the only place it can be unwrapped, because this
 emitter has no idea what a failure looks like in your application and must not invent one.
+
+## Authenticating the server
+
+**Everything here is the SDK's, and none of it is reimplemented by this emitter.** Verifying a
+token, building the RFC 9728 discovery document, and answering a 401 with a `WWW-Authenticate`
+challenge are all shipped by `@modelcontextprotocol/server`, whose `requireBearerAuth` exists
+specifically for hosts whose HTTP surface is a `fetch(request)` handler.
+
+The one thing this emitter contributes is `SCOPES_SUPPORTED` -- the union of every scope your
+`@useAuth` declares -- because that is a fact only the spec knows, and RFC 9728's `scopes_supported`
+is what a client reads to know which scopes to ask an Authorization Server for.
+
+```ts
+import {
+	buildOAuthProtectedResourceMetadata,
+	createMcpHandler,
+	getOAuthProtectedResourceMetadataUrl,
+	McpServer,
+	oauthMetadataResponse,
+	requireBearerAuth,
+	type AuthInfo,
+} from "@modelcontextprotocol/server";
+import { registerTools, SCOPES_SUPPORTED } from "./generated/mcp.gen.js";
+
+const resourceServerUrl = new URL("https://widgets.example.com/mcp");
+
+const authMetadata = {
+	oauthMetadata, // your Authorization Server's RFC 8414 metadata
+	resourceServerUrl,
+	resourceName: "Widgets",
+	scopesSupported: [...SCOPES_SUPPORTED], // <- the only piece the spec owns
+};
+
+const gate = requireBearerAuth({
+	verifier, // your OAuthTokenVerifier
+	resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl),
+});
+
+export default {
+	async fetch(request: Request): Promise<Response> {
+		// Discovery first: these are unauthenticated by definition.
+		const discovery = oauthMetadataResponse(request, authMetadata);
+		if (discovery !== undefined) return discovery;
+
+		// Then the gate. It answers with the challenge Response itself when the token is missing,
+		// expired, or short of a required scope -- you never construct a 401 by hand.
+		const auth: AuthInfo | Response = await gate(request);
+		if (auth instanceof Response) return auth;
+
+		return handler.fetch(request, { authInfo: auth });
+	},
+};
+```
+
+### Reading the caller inside a tool
+
+`handler.fetch(request, { authInfo })` is what puts the verified identity where your `ToolDeps` can
+see it. **It is not populated otherwise** -- measured: without it, `context.http.authInfo` is `null`.
+
+```ts
+const deps: ToolDeps = {
+	// Consulted at REGISTRATION, so a caller never sees a tool they could not call.
+	permits: (requirements) =>
+		requirements.length === 0 ||
+		requirements.some((requirement) =>
+			Object.entries(requirement).every(
+				([scheme, scopes]) =>
+					grant.schemes.includes(scheme) && scopes.every((s) => grant.scopes.includes(s)),
+			),
+		),
+	context: (context) => context.http?.authInfo ?? null,
+	noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
+	respond: (_context, declared, result) =>
+		toolResult(declared, statusOf(declared.arms, result), result),
+};
+```
+
+Because `permits` is consulted when the server is built, build one **per request** with that
+request's grant -- which is what the stateless model does anyway.
+
+`context.http.req` is the raw `Request` if you would rather read the header yourself, but prefer the
+gate: it enforces expiry and required scopes, and produces the matching 401 or
+`403 insufficient_scope` for you.
 
 ## Serving both an HTTP API and a tool surface from one implementation
 

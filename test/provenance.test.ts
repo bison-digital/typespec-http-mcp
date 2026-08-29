@@ -72,11 +72,6 @@ const ALLOWED_HOSTS = [
 	 * host at all, loopback included, because that would be the emitter choosing a deployment.
 	 */
 	"localhost",
-	/**
-	 * RFC 2606 reserves `.test` for exactly this: a hostname in a fixture that is guaranteed to
-	 * resolve to nothing, anywhere. It appears as an OAuth2 `tokenUrl` in the agreement fixture.
-	 */
-	"example.test",
 	"github.com",
 	"registry.npmjs.org",
 	"www.npmjs.com",
@@ -93,6 +88,21 @@ const ALLOWED_HOSTS = [
 	"spdx.org",
 	"opensource.org",
 ];
+
+/**
+ * Hostnames RFC 2606 and RFC 6761 reserve for documentation and testing.
+ *
+ * **Allowed as a CLASS rather than one at a time.** These are guaranteed to resolve to nothing,
+ * anywhere, which is exactly why a doc or a fixture should use one -- and enumerating
+ * `example.test`, then `widgets.example.com`, then the next one is how an allowlist rots into a
+ * list of whatever somebody happened to write.
+ */
+function isReserved(host: string): boolean {
+	return (
+		/(^|\.)(example|test|invalid|localhost)$/.test(host) ||
+		/(^|\.)example\.(com|net|org)$/.test(host)
+	);
+}
 
 /** Every file git tracks: source, tests, docs, workflows, manifests. Not just `src/`. */
 function trackedFiles(): string[] {
@@ -156,7 +166,7 @@ describe("the package names no private codebase", () => {
 			const text = readFileSync(join(packageRoot, file), "utf8");
 			for (const match of text.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)) {
 				const host = match[1] ?? "";
-				if (!ALLOWED_HOSTS.includes(host)) hits.push(`${file} :: ${host}`);
+				if (!ALLOWED_HOSTS.includes(host) && !isReserved(host)) hits.push(`${file} :: ${host}`);
 			}
 		}
 		expect(hits).toEqual([]);

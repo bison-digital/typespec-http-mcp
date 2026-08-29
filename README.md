@@ -30,19 +30,33 @@ authentication in front of it:
 ```ts
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import { registerTools } from "./generated/mcp.gen.js";
+import { toolResult, statusOf, type ToolDeps } from "./generated/mcp-runtime.gen.js";
 import { handlers } from "./handlers.js"; // the same object your HTTP server gets
-import { toolDeps } from "./deps.js";
+
+const deps: ToolDeps = {
+	permits: () => true,
+	context: () => ({}),
+	noContext: () => ({ content: [{ type: "text", text: "no caller" }], isError: true }),
+	respond: (_context, declared, result) =>
+		toolResult(declared, statusOf(declared.arms, result), result),
+};
+
+const handler = createMcpHandler(() => {
+	const server = new McpServer({ name: "widgets", version: "1.0.0" });
+	registerTools(server, () => handlers, deps);
+	return server;
+});
 
 export default {
-	fetch(request: Request, env: Env, ctx: ExecutionContext) {
-		return createMcpHandler(() => {
-			const server = new McpServer({ name: "widgets", version: "1.0.0" });
-			registerTools(server, () => handlers, toolDeps);
-			return server;
-		})(request, env, ctx);
+	fetch(request: Request): Promise<Response> {
+		return handler.fetch(request);
 	},
 };
 ```
+
+`createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
+returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
+`TypeError: handler is not a function`.
 
 Write the handler factory **unannotated**. Annotating it widens the value and disables the check that
 refuses a handler for an operation the spec no longer declares.

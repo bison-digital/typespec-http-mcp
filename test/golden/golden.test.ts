@@ -20,10 +20,12 @@ const reference = join(packageRoot, "test", "reference");
 /** Every fenced example the SDK anchors in its own declarations, keyed by anchor name. */
 function sdkExamples(): Map<string, string> {
 	const dist = join(packageRoot, "node_modules", "@modelcontextprotocol", "server", "dist");
-	const declaration = readdirSync(dist).find(
-		(name) => name.startsWith("createMcpHandler-") && name.endsWith(".d.mts"),
-	);
-	const text = readFileSync(join(dist, declaration ?? ""), "utf8");
+	// Every declaration file: the tool examples sit in the createMcpHandler chunk and the auth ones
+	// in index.d.mts, so reading only the first would silently lose half the golden standard.
+	const text = readdirSync(dist)
+		.filter((name) => name.endsWith(".d.mts"))
+		.map((name) => readFileSync(join(dist, name), "utf8"))
+		.join("\n");
 	const examples = new Map<string, string>();
 	for (const match of text.matchAll(
 		/source="\.\/[a-zA-Z]+\.examples\.ts#(\w+)"\n([\s\S]*?)\n\s*\*\s*```/g,
@@ -117,5 +119,72 @@ describe("the emitted call site has the shape the SDK recommends", () => {
 		expect(basic).toMatch(/new McpServer\(\{[\s\S]*name:[\s\S]*version:/);
 		const guides = readFileSync(join(packageRoot, "docs", "guides.md"), "utf8");
 		expect(guides).toMatch(/new McpServer\(\{ name: "[^"]+", version: "[^"]+" \}\)/);
+	});
+});
+
+/**
+ * **The wiring a consumer copies, pinned to the SDK's own example.**
+ *
+ * The README once showed `createMcpHandler(factory)(request, env, ctx)` -- the shape of Cloudflare's
+ * `agents` wrapper, not of the SDK this package targets, which returns an object with a `fetch`
+ * method. A consumer copying it got `TypeError: handler is not a function`, and every arm here was
+ * green because they grade `registerTool` and not the handler.
+ */
+describe("the documented wiring matches the SDK, not a wrapper around it", () => {
+	const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+	const guides = readFileSync(join(packageRoot, "docs", "guides.md"), "utf8");
+
+	it("serves through handler.fetch, never by calling the handler", () => {
+		for (const [name, doc] of [
+			["README", readme],
+			["guides", guides],
+		] as const) {
+			expect(doc, name).toContain("handler.fetch(request)");
+			expect(doc, name).not.toMatch(/createMcpHandler\([^)]*\)\(request/);
+		}
+	});
+
+	/**
+	 * The SDK anchors this example as `requireBearerAuth_fetchGate`. If its recommended gate changes
+	 * shape, this fails rather than leaving the guide quietly wrong.
+	 */
+	it("gates auth the way the SDK's own example does", () => {
+		const example = golden.get("requireBearerAuth_fetchGate") ?? "";
+		expect(example, "the SDK still ships this example").toContain("requireBearerAuth(");
+		for (const step of [
+			"requireBearerAuth(",
+			"instanceof Response",
+			"handler.fetch(request, { authInfo:",
+		]) {
+			expect(example, `SDK example: ${step}`).toContain(step);
+			expect(guides, `guides: ${step}`).toContain(step);
+		}
+	});
+
+	it("builds discovery from the SDK's helpers rather than by hand", () => {
+		for (const helper of ["oauthMetadataResponse", "getOAuthProtectedResourceMetadataUrl"]) {
+			expect(guides, helper).toContain(helper);
+		}
+		/**
+		 * And nothing in this package reimplements any of it.
+		 *
+		 * **Comments are stripped first.** A docblock that NAMES the challenge in order to say the SDK
+		 * owns it is the documentation working; the first version of this arm forbade the string and
+		 * fired on exactly that sentence. What must be absent is code.
+		 */
+		const src = readdirSync(join(packageRoot, "src"))
+			.filter((name) => name.endsWith(".ts"))
+			.map((name) => readFileSync(join(packageRoot, "src", name), "utf8"))
+			.join("\n")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/\/\/[^\n]*/g, "");
+		for (const forbidden of ["WWW-Authenticate", "oauth-protected-resource", "verifyAccessToken"]) {
+			expect(src, `src reimplements ${forbidden}`).not.toContain(forbidden);
+		}
+	});
+
+	it("emits the one authentication fact the SDK cannot know", () => {
+		expect(emitted).toContain("export const SCOPES_SUPPORTED");
+		expect(guides).toContain("scopesSupported: [...SCOPES_SUPPORTED]");
 	});
 });

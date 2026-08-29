@@ -31,6 +31,10 @@ adding a row, then planting a defect and confirming something goes red.
 | the emitted `registerTool` call           | the SDK's OWN canonical example, extracted from its published type declarations                         | `test/golden/golden.test.ts` -- it moves when the SDK moves                                                                                     |
 | the module boundaries                     | themselves, pinned                                                                                      | `test/architecture/architecture.test.ts` -- `runtime.ts` imports only what a consumer installs; the renderer never reaches the compiler         |
 | the duplicated `securityFor`              | what the sibling emitter WRITES at its own call site                                                    | `test/agreement/agreement.test.ts` -- the sibling does not export it, so the comparison is of rendered literals                                 |
+| the documented handler wiring             | the SDK's shape, not a wrapper's                                                                        | `test/golden/golden.test.ts` -- the README once showed the `agents` callable form, which is a `TypeError` against this SDK                      |
+| the documented auth gate                  | the SDK's own `requireBearerAuth_fetchGate` example                                                     | `test/golden/golden.test.ts`                                                                                                                    |
+| `src/`                                    | reimplementing no part of the SDK's auth story                                                          | `test/golden/golden.test.ts`, comments stripped so a docblock naming it is not a hit                                                            |
+| `SCOPES_SUPPORTED`                        | the scopes the document declares                                                                        | `test/golden/golden.test.ts`, and it is the only auth fact this emitter states                                                                  |
 | every diagnostic and option               | `docs/reference.md`, both directions                                                                    | `test/documentation.test.ts`                                                                                                                    |
 | every tracked file                        | naming no private codebase, and no host outside an allowlist                                            | `test/provenance.test.ts`, with a positive control proving the scanner still sees                                                               |
 | the publisher's identity                  | appearing only in the files that must carry it                                                          | `test/provenance.test.ts`                                                                                                                       |
@@ -63,6 +67,11 @@ no-ops looks exactly like a guard that holds.
 
 So a plant either asserts the text changed, or fails loudly. Re-run with that assertion, the same
 control turned red naming five specific disagreements.
+
+**The assertion must be `changed !== original`, not `anchor in source`.** That distinction has cost
+three false green controls in this repository. Checking that an anchor is PRESENT says nothing about
+whether the replacement that follows it matched: a `.replace()` whose second argument never fires
+leaves the file untouched, the suite passes, and the control reports a guard that was never tested.
 
 ## Why the agreement arm asserts identity, not assignability
 
