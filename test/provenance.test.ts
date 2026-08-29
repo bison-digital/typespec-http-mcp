@@ -65,6 +65,18 @@ const FORBIDDEN: readonly RegExp[] = [
  * of**, and the whole risk here is a private hostname nobody knew to forbid.
  */
 const ALLOWED_HOSTS = [
+	/**
+	 * Loopback, which appears in `docs/releasing.md`'s local-registry recipe. It is not a private
+	 * host: it names no machine anyone else could reach, which is the whole point of the recipe.
+	 * Note the separate and stricter rule in `portability.test.ts` -- emitted output may name no
+	 * host at all, loopback included, because that would be the emitter choosing a deployment.
+	 */
+	"localhost",
+	/**
+	 * RFC 2606 reserves `.test` for exactly this: a hostname in a fixture that is guaranteed to
+	 * resolve to nothing, anywhere. It appears as an OAuth2 `tokenUrl` in the agreement fixture.
+	 */
+	"example.test",
 	"github.com",
 	"registry.npmjs.org",
 	"www.npmjs.com",

@@ -16,7 +16,23 @@ using Http;
  * from.
  */
 @service(#{ title: "Widgets" })
+@useAuth(BearerAuth | Scoped)
 namespace Widgets;
+
+/**
+ * Authentication is declared here so the two emitters' security derivations can be COMPARED.
+ * `securityFor` is duplicated between them -- the library does not publish one -- so without a spec
+ * that declares auth, any comparison of the two would be `[] === []` and would prove nothing.
+ *
+ * Two schemes, because they take different branches: a bearer scheme carries no scopes, and an
+ * OAuth2 scheme carries them per flow.
+ */
+alias Scoped = OAuth2Auth<[{
+  type: OAuth2FlowType.clientCredentials,
+  tokenUrl: "https://example.test/token",
+  scopes: ["widgets.read", "widgets.write"],
+}]>;
+
 
 model Widget {
   id: string;

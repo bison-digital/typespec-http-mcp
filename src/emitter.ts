@@ -5,7 +5,7 @@ import { emitFile, NoTarget, resolvePath } from "@typespec/compiler";
 import { getDoc, getSummary } from "@typespec/compiler";
 import { emitHttpZod, type EmittedService } from "typespec-http-zod";
 import type { EmitterOptions } from "./lib.js";
-import { reportDiagnostic } from "./lib.js";
+import { PACKAGE_NAME, reportDiagnostic } from "./lib.js";
 import { nameTools } from "./names.js";
 import { securityFor } from "./security.js";
 import { collisionsFor } from "./coexistence.js";
@@ -27,9 +27,6 @@ import { httpOperationFor, selectTools } from "./select.js";
  * Giving this package its own runtime filename means the only file the two can contest is
  * `schemas.gen.ts`, which is byte-identical under identical options.
  */
-/** This emitter's own name, as `tspconfig.yaml` and the compiler both spell it. */
-const PACKAGE_NAME = "typespec-http-mcp";
-
 export const DEFAULT_RUNTIME_MODULE = "./mcp-runtime.gen.js";
 
 /** Where this package's own runtime source lives, to be copied beside the generated code. */

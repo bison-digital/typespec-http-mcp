@@ -44,7 +44,13 @@ model Problem {
 @tag("agent")
 @route("/widgets")
 interface WidgetTools {
-  /** List widgets, newest first. */
+  /**
+   * List widgets, newest first.
+   *
+   * A `@summary` is declared here and nowhere else, so an arm that grades the `title` path can tell
+   * a tool that HAS one from a tool that does not.
+   */
+  @summary("List widgets")
   @get list(@query limit?: int32, @header("x-page-token") pageToken?: string): WidgetPage | Problem;
 
   /** Fetch one widget by its identifier. */

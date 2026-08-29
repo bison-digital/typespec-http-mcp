@@ -141,3 +141,67 @@ describe("ONE handler object satisfies both surfaces, with no cast", () => {
 		expect(assertions.length).toBeGreaterThanOrEqual(8);
 	});
 });
+
+/**
+ * **The one derivation this package genuinely duplicates, and the arm that stops it drifting.**
+ *
+ * `securityFor` reads `getAuthenticationForOperation` off the HTTP program and turns it into the
+ * document's `security` requirements. The sibling server emitter does exactly the same and does not
+ * export it, so this package reimplements ~30 lines. That duplication is deliberate and temporary --
+ * the derivation belongs in the library both emitters run -- but until then it is ungraded unless
+ * something compares the two.
+ *
+ * Nothing can import the sibling's copy, so the comparison is of what each one WRITES. Both render
+ * the requirements as a TypeScript literal at their own call site: `deps.authorize(...)` for the HTTP
+ * surface, `deps.permits(...)` for the tool surface. Equal literals mean equal derivations.
+ */
+describe("the duplicated security derivation still agrees with the sibling's", () => {
+	/** Balanced-bracket extraction: the literal contains nested arrays, so a lazy regex stops early. */
+	function literalsAfter(source: string, call: string): string[] {
+		const found: string[] = [];
+		let from = 0;
+		for (;;) {
+			const at = source.indexOf(call, from);
+			if (at === -1) break;
+			let depth = 0;
+			let end = at + call.length;
+			for (; end < source.length; end += 1) {
+				const ch = source[end];
+				if (ch === "[") depth += 1;
+				else if (ch === "]") {
+					depth -= 1;
+					if (depth === 0) break;
+				}
+			}
+			found.push(source.slice(at + call.length, end + 1));
+			from = end;
+		}
+		return found;
+	}
+
+	it("renders the same requirements as the sibling, for every operation", () => {
+		const app = readFileSync(join(outDir, "app.gen.ts"), "utf8");
+		const mcp = readFileSync(join(outDir, "mcp.gen.ts"), "utf8");
+
+		const theirs = new Set(literalsAfter(app, "deps.authorize("));
+		const mine = new Set(literalsAfter(mcp, "deps.permits("));
+
+		expect([...mine].toSorted()).toEqual([...theirs].toSorted());
+	});
+
+	/**
+	 * **Non-vacuity, and it is the whole arm.** A spec declaring no authentication renders `[]` on
+	 * both sides, and `[] === []` proves nothing about either derivation. The fixture declares two
+	 * schemes that take different branches: a bearer scheme carries no scopes, an OAuth2 scheme
+	 * carries them per flow.
+	 */
+	it("the fixture exercises both branches, so the comparison is not [] against []", () => {
+		const mcp = readFileSync(join(outDir, "mcp.gen.ts"), "utf8");
+		const literals = literalsAfter(mcp, "deps.permits(");
+		expect(literals.length).toBeGreaterThanOrEqual(5);
+		expect(literals.every((literal) => literal !== "[]")).toBe(true);
+		// A scheme with no scopes, and a scheme with scopes, in one requirement list.
+		expect(literals[0]).toContain('"BearerAuth": []');
+		expect(literals[0]).toMatch(/"OAuth2Auth": \["widgets\.read", "widgets\.write"\]/);
+	});
+});

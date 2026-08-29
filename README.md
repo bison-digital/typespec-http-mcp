@@ -69,6 +69,7 @@ cannot publish, so the emitted surface would enforce a rule no reader of the con
 ## Documentation
 
 - [`docs/reference.md`](docs/reference.md) -- every option and every diagnostic.
+- [`docs/architecture.md`](docs/architecture.md) -- what each module owns, and the boundaries that are enforced.
 - [`docs/oracles.md`](docs/oracles.md) -- what each emitted artefact is compared against.
 - [`docs/guides.md`](docs/guides.md) -- wiring it up, serving both surfaces, and testing one.
 - [`docs/releasing.md`](docs/releasing.md) -- the local-registry rehearsal and the proof this package passed.

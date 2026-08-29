@@ -275,8 +275,17 @@ type Diagnostics = {
 	"shared-output-dir": { readonly default: CallableMessage<["emitter", "differing"]> };
 };
 
+/**
+ * This emitter's name, as `tspconfig.yaml`, the compiler and every diagnostic code all spell it.
+ *
+ * **One literal, because two would be a guard that stops working silently.** `coexistence.ts` looks
+ * this emitter up in `program.compilerOptions.options` by name; a second copy that drifted would
+ * find nothing and report no collision, with nothing to indicate the check had stopped running.
+ */
+export const PACKAGE_NAME = "typespec-http-mcp";
+
 export const $lib: TypeSpecLibrary<Diagnostics, EmitterOptions> = createTypeSpecLibrary({
-	name: "typespec-http-mcp",
+	name: PACKAGE_NAME,
 	diagnostics,
 	emitter: { options: EmitterOptionsSchema },
 });

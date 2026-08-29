@@ -1,7 +1,37 @@
 import { type EmittedRoute, objectKey, type RouteSchemaNames } from "typespec-http-zod";
-import { annotationsFor, renderAnnotations } from "./annotations.js";
+import { annotationsFor, type ToolAnnotations } from "./annotations.js";
 import type { SecurityRequirement } from "./runtime.js";
-import { renderSecurity } from "./security.js";
+
+/**
+ * **Rendering lives here, with everything else that produces text.**
+ *
+ * These two were declared beside the derivations that feed them, which read them straight into a
+ * template. That put a compiler-reading module on the renderer's import path for the sake of a
+ * `JSON.stringify`, so `tools.ts` -- which produces nothing but text -- transitively depended on
+ * `@typespec/compiler` and `@typespec/http`. A derivation module reads the program; this one writes
+ * the file; neither needs the other's dependencies.
+ */
+
+/** The requirements as a TypeScript literal, for the generated call site. */
+function renderSecurity(requirements: readonly SecurityRequirement[]): string {
+	return `[${requirements
+		.map(
+			(requirement) =>
+				`{ ${Object.entries(requirement)
+					.map(
+						([scheme, scopes]) =>
+							`${JSON.stringify(scheme)}: [${scopes.map((s) => JSON.stringify(s)).join(", ")}]`,
+					)
+					.join(", ")} }`,
+		)
+		.join(", ")}]`;
+}
+
+/** The annotations as a TypeScript object literal, for the generated call site. */
+function renderAnnotations(annotations: ToolAnnotations): string {
+	const entries = Object.entries(annotations).map(([key, value]) => `${key}: ${String(value)}`);
+	return `{ ${entries.join(", ")} }`;
+}
 
 /** The two helper types the generated signatures need, byte-identical to the sibling emitter's. */
 const HELPERS = `/**

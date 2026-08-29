@@ -50,9 +50,3 @@ export function annotationsFor(verb: string): ToolAnnotations {
 	if (method === "delete") annotations.destructiveHint = true;
 	return annotations;
 }
-
-/** The annotations as a TypeScript object literal, for the generated call site. */
-export function renderAnnotations(annotations: ToolAnnotations): string {
-	const entries = Object.entries(annotations).map(([key, value]) => `${key}: ${String(value)}`);
-	return `{ ${entries.join(", ")} }`;
-}

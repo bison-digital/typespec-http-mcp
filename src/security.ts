@@ -51,18 +51,3 @@ export function securityFor(program: Program, operation: HttpOperation): Securit
 	}
 	return requirements;
 }
-
-/** The requirements as a TypeScript literal, for the generated call site. */
-export function renderSecurity(requirements: readonly SecurityRequirement[]): string {
-	return `[${requirements
-		.map(
-			(requirement) =>
-				`{ ${Object.entries(requirement)
-					.map(
-						([scheme, scopes]) =>
-							`${JSON.stringify(scheme)}: [${scopes.map((s) => JSON.stringify(s)).join(", ")}]`,
-					)
-					.join(", ")} }`,
-		)
-		.join(", ")}]`;
-}
