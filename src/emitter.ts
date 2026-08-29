@@ -2,10 +2,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { DiagnosticTarget, EmitContext } from "@typespec/compiler";
 import { emitFile, NoTarget, resolvePath } from "@typespec/compiler";
+import { getDoc, getSummary } from "@typespec/compiler";
 import { emitHttpZod, type EmittedService } from "typespec-http-zod";
 import type { EmitterOptions } from "./lib.js";
 import { reportDiagnostic } from "./lib.js";
 import { nameTools } from "./names.js";
+import { securityFor } from "./security.js";
+import { renderTools, type ToolEntry } from "./tools.js";
 import { httpOperationFor, selectTools } from "./select.js";
 
 /**
@@ -143,5 +146,63 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 				format: { first: collision.first, second: collision.second, name: collision.name },
 			});
 		}
+
+		const entries: ToolEntry[] = [];
+		for (const route of emitted.routes) {
+			const toolName = named.names.get(route.operationId);
+			if (toolName === undefined) continue;
+			const names = emitted.schemaNames.get(route.operationId);
+			const operation = httpOperationFor(emitted.service, route);
+			if (names === undefined || operation === undefined) continue;
+			entries.push({
+				route,
+				names,
+				toolName,
+				requirements: securityFor(context.program, operation),
+				/**
+				 * **The description a model reads to decide whether to call this tool.**
+				 *
+				 * `@doc` rather than `@summary`: the summary becomes the tool's `title`, which is for
+				 * display. Both are published by `@typespec/openapi3`, so neither is a new fact.
+				 */
+				description: getDoc(context.program, operation.operation),
+				/**
+				 * **Read from `@summary` directly, not from `EmittedRoute.summary`.**
+				 *
+				 * The library's `summary` is `getSummary ?? getDoc`, which is right for its purposes and
+				 * wrong here: with only a doc comment declared it would emit a `title` byte-identical to
+				 * the `description`, so every tool would carry the same sentence twice in a payload the
+				 * model reads. A title is for display and is absent unless the spec declares one.
+				 */
+				title: getSummary(context.program, operation.operation),
+			});
+		}
+
+		/**
+		 * **`emitted + refused === selected`, asserted from structured counts rather than by reading
+		 * the file back.** Deciding anything by pattern-matching emitted text is how this estate
+		 * acquired a class of defect it then had to hunt for.
+		 */
+		const refusedCount = named.unrepresentable.length + named.collisions.length * 2;
+		if (entries.length + refusedCount !== selection.selected.length) {
+			throw new Error(
+				`typespec-http-mcp internal invariant: ${entries.length} emitted + ${refusedCount} refused ` +
+					`!== ${selection.selected.length} selected for '${serviceName}'`,
+			);
+		}
+
+		const rendered = renderTools(
+			entries,
+			emitted.routes.map((route) => route.operationId),
+			{
+				runtimeModule: emitted.options.runtimeModule,
+				sealed: emitted.options.sealObjectSchemas,
+				hint: emitted.options.regenerateHint,
+			},
+		);
+		await emitFile(context.program, {
+			path: resolvePath(emitted.outputDir, "mcp.gen.ts"),
+			content: rendered.text,
+		});
 	}
 }
