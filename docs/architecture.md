@@ -36,6 +36,18 @@ into the consumer's output, so anything it imports becomes an import in _their_ 
 package there is a broken deploy, discovered at deploy time and nowhere earlier. It also imports no
 other module of this package, which is what makes copying it out lossless.
 
+**And it imports no Node builtin**, which is a separate arm because the closure that grades the
+first rule cannot see one. `externalClosure` skips every `node:` specifier so that `emitter.ts` may
+read the filesystem without being reported, and that exclusion is exactly wrong for the one module
+copied into a Workers build: `node:fs` there is `Uncaught Error: No such module "node:fs"` unless the
+consumer sets `nodejs_compat`, which this package must not oblige anybody to set. Measured -- the
+plant left all ten architecture arms green and failed five socket arms.
+
+**The socket suite is the second half of that rule, and the only one that runs anything.**
+`test/socket/` bundles the documented Worker with esbuild and serves it on workerd with
+`compatibility_flags: []`. A static import check says what a file mentions; workerd says what a
+deployment does.
+
 **The renderer never reaches the TypeSpec compiler.** `tools.ts` produces text. It once depended on
 `@typespec/compiler` and `@typespec/http` transitively, because a derivation module also held the
 `JSON.stringify` that fed its output into a template. A derivation

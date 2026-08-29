@@ -4,19 +4,20 @@ Working record. Everything here is measured; where a number appears, it came fro
 
 ## START HERE
 
-**State, 2026-08-29.** A fourth sibling to `typespec-http-zod`, `typespec-hono` and
+**State, 2026-08-30.** A fourth sibling to `typespec-http-zod`, `typespec-hono` and
 `typespec-openapi-document`. Emits an MCP tool surface from an HTTP service definition, dispatching
 into **the same handler object** a generated Hono server calls.
 
-**171 tests, 22 files. All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
-`format:check`. `pnpm test` takes ~32s, most of it the corpus arm.
+**189 tests, 24 files. All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
+`format:check`. `pnpm test` is two vitest projects; `pnpm test:unit` is 5s against 42s for the edit
+loop.
 
-**Nothing is published and there is no git remote.** 13 commits on `main`, local only.
-`typespec-http-zod` has **1 unpushed commit** (its `0.25.0`), also local. Publishing is public,
+**Nothing is published and there is no git remote.** 17 commits on `main`, local only.
+`typespec-http-zod` has **2 unpushed commits** (its `0.25.0`), also local. Publishing is public,
 permanent, and needs Zach's explicit approval.
 
 **Three numbers to lead a report with: corpus scenarios / emitted files that compile / defects
-pinned as upstream. Today they are `65 / 64 / 1`.**
+pinned as upstream. Today they are `65 / 65 / 0`.**
 
 ### The release is BLOCKED, and correctly
 
@@ -60,7 +61,22 @@ Owned by one helper. Do not rediscover them.
 - **`Mcp-Method` is required and must agree with the body**; `Mcp-Name` is required for `tools/call`.
 - **An in-process `Request` synthesises no `Host`** and the handler answers
   `403 {"code":-32000,"message":"Missing Host header"}`. That is the DNS-rebinding check, **not**
-  auth.
+  auth. Over a real socket the problem does not arise, which is one more reason `test/socket/` is
+  worth its weight.
+
+### Three traps in the socket harness, each of which cost a confusing failure
+
+- **`allowBuilds`, not `onlyBuiltDependencies`.** pnpm 11 renamed the key. The old one is accepted in
+  `pnpm-workspace.yaml` and silently does nothing, so `pnpm install` keeps exiting 1 with
+  `ERR_PNPM_IGNORED_BUILDS` while the config looks correct. The same trap the `overrides` comment at
+  the top of that file already warns about.
+- **`dev.port` must be `0`.** wrangler's default is a fixed `8787`. A second run of the suite, or a
+  stray worker from a killed one, dies inside workerd with
+  `failed: ::bind(...): Address already in use` -- which reads like a workerd bug and is a port
+  collision. The suite reads the port back off the started worker.
+- **`unstable_startWorker` is re-exported under an alias.** Grepping the type declarations for
+  `declare function unstable_startWorker` finds nothing; it is `startWorker as unstable_startWorker`
+  in the export list. It returns `{ ready, url: Promise<URL>, dispose() }`.
 
 ## Architecture
 
@@ -122,17 +138,35 @@ to the arms that existed at the time.**
 - `EmittedRoute.verb` is UPPERCASE and `HttpOperation.verb` is lowercase; a case-sensitive lookup
   matched nothing and blamed the tag configuration.
 
-## Open, in the order I would take them
+## Open
 
-1. **Tier 2 acceptance: a real client over a real socket**, `wrangler dev`. Everything is in-process.
-   This is the last place a difference can hide, and I would not call the package finished without it.
-2. **The library's `special-words` defect.** A model named `as` emits `export type as = ...`, a
-   syntax error. Reproduced with `typespec-http-zod` alone. Pinned in
-   `LIBRARY_EMITS_UNCOMPILABLE`, and the pin FAILS when it is fixed, so closing it is deliberate.
-3. **Assert what the versioned and multi-service scenarios EMIT.** They compile; nothing checks what
-   they say.
-4. **The corpus arm adds ~25s to `pnpm test`.** Consider its own vitest project.
-5. **Release**, on Zach's word, in the order above.
+The four engineering items that stood here on 2026-08-29 are closed. What is left:
+
+1. **Release**, on Zach's word, in the order above. This is the only thing blocking `0.1.0`.
+2. **`typespec-http-zod` needs the same Tier 2 treatment.** Its emitted server has never been
+   bundled or run on workerd either, and the arm here found a live hole in an architecture rule that
+   package shares the shape of.
+3. **The library's own finding 2 is still open**: nothing compiles the conformance corpus's emitted
+   output _in that package_. This package compiles all 65, which is why `as` and `yield` were caught
+   here rather than there -- a defect in the library was invisible to the library.
+
+### What the four items produced, briefly
+
+- **Tier 2 acceptance.** `test/socket/` bundles the documented Worker with esbuild, serves it on
+  workerd with `compatibility_flags: []`, and drives it with `@modelcontextprotocol/client` over a
+  real socket. Three concurrent callers of ONE deployment see three different tool lists. Three
+  controls, each proven red: `deps` hoisted to module scope, the `agents` callable form, and
+  `node:fs` in the copied runtime.
+- **`architecture.test.ts` could not see a Node builtin in `runtime.ts`.** Its closure skips every
+  `node:` specifier so `emitter.ts` may read the filesystem -- correct for every module except the
+  one copied verbatim into a consumer's Workers build. The plant left all ten arms green and failed
+  five socket arms. There is an arm for it now.
+- **`as` and `yield` fixed in the library.** Both contextual, both refused in a declaration position,
+  both absent from the reserved set -- and the fixture that was supposed to guard the set declared
+  only words the set already knew, so it graded the set against itself. The corpus is now 65/65.
+- **Versioned and multi-service scenarios are asserted**, not merely compiled. The emitter emits the
+  latest version's surface, and a parameter removed at the served version does not survive as a tool
+  argument. Multi-service had never been compiled at all.
 
 ## How this work is done
 

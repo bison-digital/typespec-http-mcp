@@ -73,10 +73,6 @@ export default {
 returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
 `TypeError: handler is not a function`.
 
-`createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
-returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
-`TypeError: handler is not a function`.
-
 **Write the handler factory unannotated.** Annotating it widens the value, and the check that refuses
 a handler for an operation the spec no longer declares evaporates.
 

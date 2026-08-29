@@ -121,12 +121,56 @@ The preprocess wrapper still projects `"type":"integer"`, and `colour` is correc
 ## P-void - is `{ content: [] }` valid?
 
 `200`, accepted, echoed back as `{"content":[],"resultType":"complete",...}`. A `void`/204 operation
-can return it without inventing a sentence. Probe 9 (how a real _client_ renders it) is still open
-and is deferred to the Tier 2 acceptance arm, where a real client exists.
+can return it without inventing a sentence. Probe 9 (how a real _client_ handles it) is **closed**:
+`test/socket/socket.test.ts` calls a `void` operation through `@modelcontextprotocol/client` over a
+socket, and the client reports `content: []` with no error. A bodyless success needs no invented
+sentence at either end.
 
 ## Still open
 
-| probe                                  | why it is deferred                                        |
-| -------------------------------------- | --------------------------------------------------------- |
-| 8 - `no-output-schema` frequency       | **moot**; the refusal was deleted by P5                   |
-| 9 - `{ content: [] }` client rendering | needs a real client; belongs to the Tier 2 acceptance arm |
+| probe                                  | why it is deferred                         |
+| -------------------------------------- | ------------------------------------------ |
+| 8 - `no-output-schema` frequency       | **moot**; the refusal was deleted by P5    |
+| 9 - `{ content: [] }` client rendering | **closed** by `test/socket/socket.test.ts` |
+
+## Tier 2, measured
+
+The socket arm, and the numbers it moved.
+
+| measurement                                | value                                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| corpus scenarios / emitted files compiling | **65 / 65**, with no exceptions list. Was 65 / 64                            |
+| defects pinned as upstream                 | **0**. Was 1                                                                 |
+| `pnpm test`                                | 24 files, 189 tests                                                          |
+| `pnpm test:unit` against `pnpm test`       | **5s against 42s** -- the reason the suite is split into two vitest projects |
+
+**A Node builtin in `src/runtime.ts` is invisible to `architecture.test.ts` and fatal on workerd.**
+`node:fs` planted there left all ten architecture arms green and failed five socket arms with
+`Uncaught Error: No such module "node:fs"`. The closure that grades imports skips every `node:`
+specifier, so `emitter.ts` may read the filesystem -- correct for every module except the one copied
+verbatim into a consumer's build. There is now an arm for it, red on the same plant.
+
+**Three controls on the socket arm, each proven red and restored from a byte copy.**
+
+| plant                                       | result                                                   |
+| ------------------------------------------- | -------------------------------------------------------- |
+| `deps` hoisted to module scope              | 2 arms red -- all three callers see one list             |
+| `handler(request)` instead of `.fetch(...)` | 4 arms red -- `TypeError: handler is not a function`     |
+| `node:fs` in the copied runtime             | 5 arms red -- `Uncaught Error: No such module "node:fs"` |
+
+## Reserved words, re-measured (in `typespec-http-zod`)
+
+`tsc` 7.0.2, **one invocation per word**, both declaration positions, over 56 candidates drawn from
+this package's own list and from `@typespec/http-specs`.
+
+| result                     | value                                                                   |
+| -------------------------- | ----------------------------------------------------------------------- |
+| refused in either position | **39**                                                                  |
+| listed before this work    | 37 -- `as` and `yield` were missing                                     |
+| listed and NOT refused     | **0**; the set is exact, not over-broad                                 |
+| `as`                       | legal as an `interface` name, `TS1005` as a type alias                  |
+| `yield`                    | `TS1214` in both, and recorded in the list's docblock as measured-legal |
+
+**A single `tsc` run over all 112 probe files reported a capped subset**, ending alphabetically at
+`t_with.ts` and silently omitting `t_yield.ts`. The first measurement here concluded `as` was the
+only miss because of it. One invocation per word is the form that answers.

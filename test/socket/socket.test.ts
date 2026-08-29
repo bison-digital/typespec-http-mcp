@@ -106,6 +106,26 @@ describe("the documented Worker, on workerd, over a socket", () => {
 	});
 
 	/**
+	 * **Probe 9, closed.** `docs/measurements.md` recorded that a `void` operation returns
+	 * `{ content: [] }`, that the SDK accepts it, and that how a real CLIENT handles it was unknown
+	 * and deferred to exactly this arm. It parses, and the client reports no error -- so a bodyless
+	 * success needs no invented sentence.
+	 */
+	it("returns a void operation's empty content to a real client without error", async () => {
+		const client = await connect("writer-token");
+		try {
+			const result = await client.callTool({
+				name: "WidgetTools_remove",
+				arguments: { widgetId: "1" },
+			});
+			expect(result.isError).toBeFalsy();
+			expect(result.content).toEqual([]);
+		} finally {
+			await client.close();
+		}
+	});
+
+	/**
 	 * **The arm this suite exists for, and the one Tier 1 structurally cannot write.**
 	 *
 	 * One handler, built once at module scope in the Worker. Three clients connected at the same
