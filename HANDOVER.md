@@ -12,9 +12,10 @@ into **the same handler object** a generated Hono server calls.
 `format:check`. `pnpm test` is two vitest projects; `pnpm test:unit` is 5s against 42s for the edit
 loop.
 
-**Nothing is published and there is no git remote.** 17 commits on `main`, local only.
-`typespec-http-zod` has **2 unpushed commits** (its `0.25.0`), also local. Publishing is public,
-permanent, and needs Zach's explicit approval.
+**Nothing is published and there is no git remote.** Every commit on `main` is local.
+`typespec-http-zod` also carries unpushed commits, its `0.25.0`. Publishing is public, permanent, and
+needs Zach's explicit approval. (A commit COUNT is deliberately not recorded here: writing it down is
+itself a commit, so it is wrong the moment it is true. `git rev-list --count HEAD` answers.)
 
 **Three numbers to lead a report with: corpus scenarios / emitted files that compile / defects
 pinned as upstream. Today they are `65 / 65 / 0`.**
