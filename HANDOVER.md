@@ -4,32 +4,41 @@ Working record. Everything here is measured; where a number appears, it came fro
 
 ## START HERE
 
-**State, 2026-08-30.** A fourth sibling to `typespec-http-zod`, `typespec-hono` and
+**State, 2026-09-13.** A fourth sibling to `typespec-http-zod`, `typespec-hono` and
 `typespec-openapi-document`. Emits an MCP tool surface from an HTTP service definition, dispatching
 into **the same handler object** a generated Hono server calls.
 
-**189 tests, 24 files. All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
-`format:check`. `pnpm test` is two vitest projects; `pnpm test:unit` is 5s against 42s for the edit
-loop.
+**195 tests, 25 files. All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
+`format:check`. `pnpm test` is two vitest projects; `pnpm test:unit` is the fast one for the edit
+loop. Zero lint warnings. CI runs the same five gates on Node 22 and 24 and is green.
 
-**Nothing is published and there is no git remote.** Every commit on `main` is local.
-`typespec-http-zod` also carries unpushed commits, its `0.25.0`. Publishing is public, permanent, and
-needs the maintainer's explicit approval. (A commit COUNT is deliberately not recorded here: writing it down is
-itself a commit, so it is wrong the moment it is true. `git rev-list --count HEAD` answers.)
+**The repository is public and `main` is pushed.** Nothing is published to npm: `0.1.0` has never
+been released, deliberately, and is waiting on a use for it rather than on any unfinished work.
+Publishing is public and permanent, and needs the maintainer's explicit approval.
 
 **Three numbers to lead a report with: corpus scenarios / emitted files that compile / defects
-pinned as upstream. Today they are `65 / 65 / 0`.**
+pinned as upstream. Today they are `66 / 66 / 0`.**
 
-### The release is BLOCKED, and correctly
+**Versions this is built and tested against**, all current as of 2026-09-13: TypeSpec 1.16.0 /
+0.86.0, `typespec-http-zod@0.25.0` from the registry, `typespec-hono@0.22.0`, zod 4.6.2, hono
+4.13.7, vitest 5, wrangler 4.131.1, and the conformance corpus at `0.1.0-alpha.43`.
 
-`pnpm-workspace.yaml` carries `overrides: typespec-http-zod: "link:../typespec-http-zod"`, because
-`0.25.0` is not published. `.github/workflows/release.yml` refuses to publish while that line exists,
-and that guard is load-bearing rather than ceremonial: `--frozen-lockfile` exits 0 on a dangling
-link, so a release checkout with no sibling on disk installs happily and fails four steps later as a
-wall of `TS2307` naming the module but not the cause.
+### Publishing, when there is a reason to
 
-**Release order is fixed:** `typespec-http-zod@0.25.0` first, then remove the override, re-install so
-the lockfile resolves from the registry, then `typespec-http-mcp@0.1.0`.
+**Nothing blocks it.** The `link:` override is gone, `typespec-http-zod@0.25.0` resolves from the
+registry, and `release.yml`'s guard against a locally-linked first-party dependency now passes as a
+no-op that still catches a regression.
+
+`docs/releasing.md` has the recipe. In short: the version is already `0.1.0` and the CHANGELOG
+already names it, so it is bump-if-needed, four gates by exit code, `git tag v0.1.0`,
+`git push origin main`, then `git push origin refs/tags/v0.1.0` **separately** -- lightweight tags do
+not travel with `--follow-tags`. Confirm by SHA with `gh run list --json headSha,conclusion`, then by
+`npm view typespec-http-mcp version`. The registry lags the workflow by a minute; that is not a
+failure.
+
+**Git operations here are over SSH.** The remote is `git@github.com:...`. An HTTPS remote falls
+through to an OAuth token that has no `workflow` scope and the push is rejected for touching
+`.github/workflows/`. That is a property of the remote URL, not of the account.
 
 ### The six things most easily lost
 
@@ -143,7 +152,7 @@ to the arms that existed at the time.**
 
 The four engineering items that stood here on 2026-08-29 are closed. What is left:
 
-1. **Release**, on the maintainer's word, in the order above. This is the only thing blocking `0.1.0`.
+1. **Publish `0.1.0`**, when there is a project that wants it. Not blocked; see above.
 2. **`typespec-http-zod` needs the same Tier 2 treatment.** Its emitted server has never been
    bundled or run on workerd either, and the arm here found a live hole in an architecture rule that
    package shares the shape of.

@@ -85,11 +85,11 @@ export async function compileFixture(
 			"@typespec/openapi3": { "emitter-output-dir": join(outDir, "openapi"), "file-type": "json" },
 			"typespec-http-mcp":
 				options.bare === true
-					? { "emitter-output-dir": outDir, ...(options.extraOptions ?? {}) }
+					? { "emitter-output-dir": outDir, ...options.extraOptions }
 					: {
 							"emitter-output-dir": outDir,
 							"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
-							...(options.extraOptions ?? {}),
+							...options.extraOptions,
 						},
 		},
 	});
