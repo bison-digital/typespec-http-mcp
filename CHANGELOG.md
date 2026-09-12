@@ -18,6 +18,10 @@ Unreleased.
 - `SCOPES_SUPPORTED`, the union of scopes the document declares, for RFC 9728's `scopes_supported`.
   It is the only authentication fact this emitter states; everything else is the SDK's.
 - Annotations derived from IANA's HTTP Method Registry, vendored and sha-pinned.
+- A tool description is rendered into the emitted JSDoc through `typespec-http-zod`'s
+  `jsDocComment`, so a description containing a comment terminator cannot stop the emitted file
+  compiling. The runtime copy, which is the one a model actually reads when choosing a tool, has
+  always gone through `JSON.stringify` and is unchanged; the comment three lines above it had not.
 
 Evidence, all of it added before the first release rather than after a report:
 

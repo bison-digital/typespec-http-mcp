@@ -1,4 +1,9 @@
-import { type EmittedRoute, objectKey, type RouteSchemaNames } from "typespec-http-zod";
+import {
+	jsDocComment,
+	objectKey,
+	type EmittedRoute,
+	type RouteSchemaNames,
+} from "typespec-http-zod";
 import { annotationsFor, type ToolAnnotations } from "./annotations.js";
 import type { SecurityRequirement } from "./runtime.js";
 
@@ -238,7 +243,7 @@ export function renderTools(
 
 	const methods = entries
 		.map((entry) => {
-			const doc = entry.description === undefined ? "" : `\t/** ${entry.description} */\n`;
+			const doc = jsDocComment(entry.description, "\t");
 			return `${doc}\t${entry.route.operationId}(ctx: Ctx, input: ${inputTypeOf(entry)}): Awaitable<Result<${outputTypeOf(entry)}>>;`;
 		})
 		.join("\n");
