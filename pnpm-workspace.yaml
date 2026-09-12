@@ -1,7 +1,7 @@
 minimumReleaseAgeExclude:
   - typespec-http-zod@0.24.0 || 0.25.0
   - zod@4.5.2
-  - typespec-hono@0.21.0
+  - typespec-hono@0.21.0 || 0.22.0
 
 # `wrangler` bundles with esbuild and serves with workerd, and both need their install scripts to
 # run. Named one at a time rather than allowed as a class: pnpm blocks build scripts by default, and
