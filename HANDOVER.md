@@ -14,7 +14,7 @@ loop.
 
 **Nothing is published and there is no git remote.** Every commit on `main` is local.
 `typespec-http-zod` also carries unpushed commits, its `0.25.0`. Publishing is public, permanent, and
-needs Zach's explicit approval. (A commit COUNT is deliberately not recorded here: writing it down is
+needs the maintainer's explicit approval. (A commit COUNT is deliberately not recorded here: writing it down is
 itself a commit, so it is wrong the moment it is true. `git rev-list --count HEAD` answers.)
 
 **Three numbers to lead a report with: corpus scenarios / emitted files that compile / defects
@@ -143,7 +143,7 @@ to the arms that existed at the time.**
 
 The four engineering items that stood here on 2026-08-29 are closed. What is left:
 
-1. **Release**, on Zach's word, in the order above. This is the only thing blocking `0.1.0`.
+1. **Release**, on the maintainer's word, in the order above. This is the only thing blocking `0.1.0`.
 2. **`typespec-http-zod` needs the same Tier 2 treatment.** Its emitted server has never been
    bundled or run on workerd either, and the arm here found a live hole in an architecture rule that
    package shares the shape of.
@@ -171,7 +171,7 @@ The four engineering items that stood here on 2026-08-29 are closed. What is lef
 
 ## How this work is done
 
-`SESSION-HANDOVER.md` in the parent directory carries the method these packages share. Two additions earned here:
+The sibling emitters share a working method, kept outside this repository. Two additions earned here:
 
 - **A plant must assert `changed !== original`, not `anchor in source`.** That distinction cost three
   false-green controls in this repository. A `.replace()` that matches nothing leaves the file
