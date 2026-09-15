@@ -43,6 +43,14 @@
 
 ### Fixed
 
+- **`deps.context` is told `"optional"` for an operation offering an anonymous alternative beside a
+  real one** (`NoAuth | BearerAuth`). It was told `"none"`, from the library's `noAuth`, so a caller
+  presenting a valid credential was never recognised on such a tool. The argument is now
+  `"none" | "optional" | "required"`, read from `EmittedRoute.authentication`.
+- **`permits` receives the `security` the document publishes**, so an anonymous alternative is the
+  empty requirement `{}`: `@useAuth(NoAuth)` is `[{}]`, where it was `[]`. A `permits` that treats a
+  requirement as satisfied when every scheme in it is still authorises it.
+
 - `shared-output-dir` counts another emitter as running `typespec-http-zod` when its published option
   schema accepts the library's options. It used to require that one of them was SET, so an emitter on
   its defaults beside one setting `compile-schemas` rewrote `schemas.gen.ts` with nothing said. Every

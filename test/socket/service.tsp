@@ -15,8 +15,11 @@ using Http;
  *
  * - read-only  -> the two read tools, plus the public one
  * - read+write -> every tool
- * - no grant   -> the public one alone, because `@useAuth(NoAuth)` publishes `[]` requirements and
- *   an empty requirement set authorises
+ * - no grant   -> the public one and the optional one, because an anonymous alternative is the empty
+ *   requirement `{}`, which every caller satisfies
+ *
+ * Three operations echo the `authentication` the generated call passed to `deps.context`, one per
+ * value, so a server passing the wrong one is caught by a real client rather than by reading output.
  *
  * The vocabulary is deliberately closed and generic; `provenance.test.ts` grades this file for a
  * private domain noun reaching a published package.
@@ -51,6 +54,8 @@ model NewWidget {
 model WidgetPage {
   items: Widget[];
   total: int32;
+  /** What `deps.context` was told this call demands. */
+  authentication: string;
 }
 
 @error
@@ -78,8 +83,17 @@ interface WidgetTools {
   @route("/{widgetId}") @delete remove(@path widgetId: string): void | Problem;
 }
 
-/** Public, so `permits` receives `[]` and every caller sees it -- including one with no grant. */
+/** Public, so `permits` receives `[{}]` and every caller sees it -- including one with no grant. */
 @useAuth(NoAuth)
 @route("/health")
 @get
-op health(): { status: string };
+op health(): { status: string; authentication: string };
+
+/**
+ * Who is asking. Anonymous callers are admitted and a read grant is recognised, so `permits` receives
+ * `[{}, { OAuth2Auth: ["widgets.read"] }]` and `deps.context` is told `"optional"`.
+ */
+@useAuth(NoAuth | Read)
+@route("/whoami")
+@get
+op whoami(): { caller: string; authentication: string };

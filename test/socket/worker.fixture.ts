@@ -21,16 +21,30 @@ import type { ToolDeps } from "./.out/socket/mcp-runtime.gen.js";
  * `status` stays the literal that selects its response and `registerTools` still sees every key.
  */
 const widget = { id: "1", name: "a", colour: "grey" };
+
+/** The caller `deps.context` establishes, carrying the `authentication` the generated call passed. */
+interface Caller {
+	readonly caller: "anonymous" | "granted";
+	readonly authentication: "none" | "optional" | "required";
+}
+
 const handlers = {
-	health: () => ({ status: 200, body: { status: "ok" } }),
-	WidgetTools_list: () => ({ status: 200, body: { items: [widget], total: 1 } }),
+	health: (ctx) => ({ status: 200, body: { status: "ok", authentication: ctx.authentication } }),
+	whoami: (ctx) => ({
+		status: 200,
+		body: { caller: ctx.caller, authentication: ctx.authentication },
+	}),
+	WidgetTools_list: (ctx) => ({
+		status: 200,
+		body: { items: [widget], total: 1, authentication: ctx.authentication },
+	}),
 	WidgetTools_read: (_ctx, input) =>
 		input.widgetId === "missing"
 			? { status: 404, body: { code: "missing", message: "No widget has that identifier." } }
 			: { status: 200, body: widget },
 	WidgetTools_create: () => ({ status: 200, body: widget }),
 	WidgetTools_remove: () => ({ status: 204 }),
-} satisfies Tools;
+} satisfies Tools<Caller>;
 
 /**
  * Three callers, one deployment.
@@ -57,7 +71,7 @@ const handler = createMcpHandler(
 		const scopes = context.authInfo?.scopes ?? [];
 		const schemes = (context.authInfo?.extra?.["schemes"] as readonly string[] | undefined) ?? [];
 
-		const deps: ToolDeps = {
+		const deps: ToolDeps<Caller> = {
 			permits: (requirements) =>
 				requirements.length === 0 ||
 				requirements.some((requirement) =>
@@ -66,7 +80,10 @@ const handler = createMcpHandler(
 							schemes.includes(scheme) && needed.every((scope) => scopes.includes(scope)),
 					),
 				),
-			context: () => ({}),
+			context: (_context, authentication) => ({
+				caller: scopes.length > 0 ? "granted" : "anonymous",
+				authentication,
+			}),
 			noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
 		};
 

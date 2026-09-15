@@ -184,13 +184,42 @@ describe("the documented Worker, on workerd, over a socket", () => {
 				"WidgetTools_read",
 				"WidgetTools_remove",
 				"health",
+				"whoami",
 			]);
-			expect(readerNames).toEqual(["WidgetTools_list", "WidgetTools_read", "health"]);
-			// `@useAuth(NoAuth)` publishes `[]`, and an empty requirement set authorises. So a caller
-			// with no grant at all still sees the public tool -- an absence would be a different bug.
-			expect(nobodyNames).toEqual(["health"]);
+			expect(readerNames).toEqual(["WidgetTools_list", "WidgetTools_read", "health", "whoami"]);
+			// An anonymous alternative is the empty requirement `{}`, which every caller satisfies. So a
+			// caller with no grant at all still sees the public tool and the optional one -- an absence
+			// would be a different bug.
+			expect(nobodyNames).toEqual(["health", "whoami"]);
 		} finally {
 			await Promise.all([writer.close(), reader.close(), nobody.close()]);
+		}
+	});
+
+	/**
+	 * **`deps.context` is told what the document declares, one value per operation.** Each call below
+	 * echoes the `authentication` its generated call site passed, so a server that passed one value
+	 * for every operation, or read the deprecated `noAuth` (which called `NoAuth | Read` "none"), is
+	 * refused by a real client.
+	 */
+	it("tells deps.context none, optional or required, as each operation declares", async () => {
+		const [reader, nobody] = await Promise.all([connect("reader-token"), connect("nobody-token")]);
+		try {
+			const call = async (client: Client, name: string) =>
+				(await client.callTool({ name, arguments: {} })).structuredContent;
+			expect(await call(nobody, "health")).toEqual({ status: "ok", authentication: "none" });
+			expect(await call(nobody, "whoami")).toEqual({
+				caller: "anonymous",
+				authentication: "optional",
+			});
+			// The same optional operation recognises a caller who presents a grant.
+			expect(await call(reader, "whoami")).toEqual({
+				caller: "granted",
+				authentication: "optional",
+			});
+			expect(await call(reader, "WidgetTools_list")).toMatchObject({ authentication: "required" });
+		} finally {
+			await Promise.all([reader.close(), nobody.close()]);
 		}
 	});
 
@@ -207,7 +236,7 @@ describe("the documented Worker, on workerd, over a socket", () => {
 		const client = await connect("unknown-token");
 		try {
 			const names = namesOf(await client.listTools());
-			expect(names).toEqual(["health"]);
+			expect(names).toEqual(["health", "whoami"]);
 		} finally {
 			await client.close();
 		}

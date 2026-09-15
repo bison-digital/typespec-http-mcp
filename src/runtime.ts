@@ -439,10 +439,12 @@ export interface ToolDeps<C = unknown> {
 	 * they cannot call, rather than being refused after calling it. That is a genuine divergence
 	 * from an HTTP surface, where a 403 is the right answer and middleware is the right shape.
 	 *
-	 * Receives the document's own `security` for the operation: satisfying ANY ONE requirement
-	 * authorises, and every scheme WITHIN a requirement must be satisfied together. `[]` where the
-	 * operation declares `@useAuth(NoAuth)` or nothing -- a fact rather than an absence, because an
-	 * application may still choose to hide a public tool from an anonymous caller.
+	 * Receives the `security` the document publishes for the operation: satisfying ANY ONE requirement
+	 * authorises, and every scheme WITHIN a requirement must be satisfied together. An anonymous
+	 * alternative is the empty requirement `{}`, which every caller satisfies: `@useAuth(NoAuth)` is
+	 * `[{}]` and `NoAuth | BearerAuth` is `[{}, { BearerAuth: [] }]`. An operation declaring no auth
+	 * at all is `[]`. Both are facts rather than absences, because an application may still choose to
+	 * hide a public tool from an anonymous caller.
 	 *
 	 * A grant that selects nothing is not an error: nothing is registered and `tools/list` answers
 	 * with a well-formed empty list. `registerTools` returns the names it did register, which is how
@@ -453,12 +455,20 @@ export interface ToolDeps<C = unknown> {
 	/**
 	 * The caller's context, or `null` when there is none to establish.
 	 *
-	 * `authentication` is what the DOCUMENT says and only that: `"none"` where the operation declares
-	 * `@useAuth(NoAuth)` and `"required"` otherwise, decided at generation time. Nothing richer is
-	 * offered, because nothing richer is published -- the sibling emitter once invented a distinction
-	 * from whether a path had parameters, which no OpenAPI keyword expresses.
+	 * `authentication` is what the DOCUMENT says and only that, decided at generation time:
+	 *
+	 * - `"none"`: no alternative asks for anything, `@useAuth(NoAuth)` or no auth at all;
+	 * - `"optional"`: an anonymous alternative sits beside a real one, `NoAuth | BearerAuth`, so a
+	 *   caller presenting a credential is recognised and one presenting none is still admitted;
+	 * - `"required"`: every alternative asks for something.
+	 *
+	 * Nothing richer is offered, because nothing richer is published -- the sibling emitter once
+	 * invented a distinction from whether a path had parameters, which no OpenAPI keyword expresses.
 	 */
-	readonly context: (context: ServerContext, authentication: "none" | "required") => C | null;
+	readonly context: (
+		context: ServerContext,
+		authentication: "none" | "optional" | "required",
+	) => C | null;
 
 	/** The result when {@link context} returns `null`. The application's to decide. */
 	readonly noContext: (context: ServerContext) => CallToolResult;

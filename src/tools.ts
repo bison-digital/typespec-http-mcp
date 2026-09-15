@@ -147,6 +147,22 @@ function intersectedValidators(entry: ToolEntry): readonly string[] {
 	);
 }
 
+/**
+ * The groups whose `.shape` the argument schema spreads: the same groups, with the query read from
+ * `queryFields`.
+ *
+ * **A query group can be a pipe.** Where the document explodes a record or model into query keys, the
+ * library's `query` validator gathers those keys back into one property before validating, and a pipe
+ * has no `.shape`. A tool's arguments are already one JSON object, so there is nothing to gather: the
+ * structural object the pipe validates is the schema a tool takes.
+ */
+function shapedValidators(entry: ToolEntry): readonly string[] {
+	const { names } = entry;
+	return intersectedValidators(entry).map((name) =>
+		name === names.query && names.queryFields !== undefined ? names.queryFields : name,
+	);
+}
+
 /** The handler's input type: the same intersection the sibling server emitter writes. */
 function inputTypeOf(entry: ToolEntry): string {
 	const parts = intersectedValidators(entry).map((name) => `Fields<z.infer<typeof ${name}>>`);
@@ -177,7 +193,7 @@ function inputTypeOf(entry: ToolEntry): string {
  */
 function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	const constructor = sealed ? "z.strictObject" : "z.looseObject";
-	const spreads = intersectedValidators(entry).map((name) => `...${name}.shape`);
+	const spreads = shapedValidators(entry).map((name) => `...${name}.shape`);
 	if (entry.route.bodyProperty !== undefined && entry.names.body !== undefined) {
 		spreads.push(`${objectKey(entry.route.bodyProperty)}: ${entry.names.body}`);
 	}
@@ -380,7 +396,9 @@ export function renderTools(
 ): RenderedTools {
 	const imported = new Set<string>();
 	for (const entry of entries) {
-		for (const name of intersectedValidators(entry)) imported.add(name);
+		for (const name of [...intersectedValidators(entry), ...shapedValidators(entry)]) {
+			imported.add(name);
+		}
 		if (entry.names.body !== undefined) imported.add(entry.names.body);
 		for (const member of membersOf(entry.route, entry.names)) {
 			const serving = bodyServingOf(member);
@@ -512,7 +530,7 @@ export function renderTools(
 				annotations: ${renderAnnotations(annotationsFor(entry.route.verb))},
 			},
 			async (${argumentName}, context) => {
-				const ctx = deps.context(context, ${entry.route.noAuth ? '"none"' : '"required"'});
+				const ctx = deps.context(context, ${JSON.stringify(entry.route.authentication)});
 				if (ctx === null) return deps.noContext(context);
 				return toolResult(
 					${declared},
