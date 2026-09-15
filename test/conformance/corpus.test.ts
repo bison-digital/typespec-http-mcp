@@ -40,15 +40,19 @@ const LIBRARY_REFUSES: Readonly<Record<string, string>> = {
  * only asks whether a file was written, and a file is written either way. Named rather than
  * tolerated, so a third one is a change somebody explains.
  *
- * All are correct. A multipart body cannot be a tool argument, and `@body body: string` is not an
- * object, so neither can be merged into an argument schema that MCP will accept. Every operation in
- * the two streaming scenarios answers with a stream, and a tool result is one message.
+ * All are correct. A multipart body cannot be a tool argument, and every operation in the two
+ * streaming scenarios answers with a stream, while a tool result is one message.
+ *
+ * **`versioning/returnTypeChangedFrom` left this list rather than being tolerated in it.** Its
+ * `@body body: string` was refused as `non-object-body` because the library MERGED a body that is not
+ * a model into the parameters; the library now names such a body, so it arrives as an ordinary `body`
+ * argument and the scenario emits its tools. The refusal still stands for a body this emitter cannot
+ * carry, which `test/refusals` states directly.
  */
 const EMITTER_REFUSES_EVERY_OPERATION: Readonly<Record<string, string>> = {
 	payload__multipart: "typespec-http-mcp/binary-tool-input",
 	streaming__jsonl: "typespec-http-mcp/streamed-tool-output",
 	streaming__sse: "typespec-http-mcp/streamed-tool-output",
-	versioning__returnTypeChangedFrom: "typespec-http-mcp/non-object-body",
 };
 
 interface Scenario {

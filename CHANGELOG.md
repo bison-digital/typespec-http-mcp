@@ -43,6 +43,12 @@
 
 ### Fixed
 
+- **An operation whose body is a scalar, enum or union is a tool again.** It was refused as
+  `non-object-body` because the library merged such a body into the parameters; the library names it
+  now, so it arrives as an ordinary `body` argument. `versioning/returnTypeChangedFrom` left the
+  corpus's "every operation refused" list as a result. The refusal still stands for a body this
+  emitter cannot carry.
+
 - **`deps.context` is told `"optional"` for an operation offering an anonymous alternative beside a
   real one** (`NoAuth | BearerAuth`). It was told `"none"`, from the library's `noAuth`, so a caller
   presenting a valid credential was never recognised on such a tool. The argument is now
