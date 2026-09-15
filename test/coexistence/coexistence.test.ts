@@ -33,12 +33,10 @@ async function compileWith(
 	return program.diagnostics.map((d) => d.code);
 }
 
-const runtime = "../../../agreement/runtime.js";
-
 describe("sharing one output directory", () => {
 	it("is SILENT when both emitters resolve the same library options", async () => {
 		const out = join(here, ".out", "matching");
-		const shared = { "emitter-output-dir": out, "runtime-module": runtime };
+		const shared = { "emitter-output-dir": out };
 		const codes = await compileWith(
 			"matching",
 			{
@@ -60,12 +58,10 @@ describe("sharing one output directory", () => {
 			{
 				"typespec-hono": {
 					"emitter-output-dir": out,
-					"runtime-module": runtime,
 					"seal-object-schemas": true,
 				},
 				"typespec-http-mcp": {
 					"emitter-output-dir": out,
-					"runtime-module": runtime,
 					"seal-object-schemas": false,
 				},
 			},
@@ -80,10 +76,9 @@ describe("sharing one output directory", () => {
 		const codes = await compileWith(
 			"asymmetric",
 			{
-				"typespec-hono": { "emitter-output-dir": out, "runtime-module": runtime },
+				"typespec-hono": { "emitter-output-dir": out },
 				"typespec-http-mcp": {
 					"emitter-output-dir": out,
-					"runtime-module": runtime,
 					"compile-schemas": false,
 				},
 			},
@@ -103,12 +98,10 @@ describe("the arrangements that are not a hazard", () => {
 			{
 				"typespec-hono": {
 					"emitter-output-dir": join(out, "hono"),
-					"runtime-module": "../../../../agreement/runtime.js",
 					"seal-object-schemas": true,
 				},
 				"typespec-http-mcp": {
 					"emitter-output-dir": join(out, "mcp"),
-					"runtime-module": "../../../../agreement/runtime.js",
 					"seal-object-schemas": false,
 				},
 			},
@@ -124,7 +117,7 @@ describe("the arrangements that are not a hazard", () => {
 		const codes = await compileWith(
 			"alone",
 			{
-				"typespec-http-mcp": { "emitter-output-dir": out, "runtime-module": runtime },
+				"typespec-http-mcp": { "emitter-output-dir": out },
 			},
 			["typespec-http-mcp"],
 			out,

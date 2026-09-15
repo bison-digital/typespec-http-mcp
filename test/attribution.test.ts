@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { workingTreeFiles } from "./support/working-tree.js";
 
 /**
  * **Nothing here credits a tool for the work, in the files or in the history.**
@@ -49,9 +50,7 @@ const TEXT = /\.(ts|tsp|md|json|jsonc|ya?ml|txt)$/;
 const SELF = "test/attribution.test.ts";
 
 describe("the package credits no tool for the work", () => {
-	const files = git("ls-files")
-		.split("\n")
-		.filter((n) => n !== "" && TEXT.test(n) && n !== SELF);
+	const files = workingTreeFiles(packageRoot).filter((n) => TEXT.test(n) && n !== SELF);
 
 	it("has files and history to inspect at all", () => {
 		expect(files.length).toBeGreaterThanOrEqual(10);

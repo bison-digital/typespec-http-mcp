@@ -40,12 +40,10 @@ let generated: Generated;
 
 beforeAll(async () => {
 	/**
-	 * `bare: true` -- the self-contained output a consumer actually ships, `mcp-runtime.gen.ts`
-	 * included. A fixture that pointed `runtime-module` at this repository's own `src/runtime.ts`
-	 * would bundle a file no consumer has.
+	 * The self-contained output a consumer actually ships, `mcp-runtime.gen.ts` included. The runtime
+	 * is always the emitted copy, so what is bundled here is a file every consumer has.
 	 */
 	const { outDir, diagnostics } = await compileFixture(here, "service", {
-		bare: true,
 		outName: "socket",
 	});
 	expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -100,6 +98,33 @@ describe("the documented Worker, on workerd, over a socket", () => {
 			});
 			expect(result.structuredContent).toEqual({ id: "1", name: "a", colour: "grey" });
 			expect(result.isError).toBeFalsy();
+		} finally {
+			await client.close();
+		}
+	});
+
+	/**
+	 * **A declared failure reaches a real client as a tool-execution error carrying its own body.**
+	 *
+	 * The tool publishes the success body as its `outputSchema`, and the SDK client refuses a result
+	 * that is not an error and carries no `structuredContent`. A 404 is an error, so the client accepts
+	 * it with the failure's body as text, which is what a model reads to correct itself.
+	 */
+	it("returns a declared 404 to a real client as isError, with the failure's body", async () => {
+		const client = await connect("writer-token");
+		try {
+			const result = await client.callTool({
+				name: "WidgetTools_read",
+				arguments: { widgetId: "missing" },
+			});
+			expect(result.isError).toBe(true);
+			expect(result.structuredContent).toBeUndefined();
+			expect(result.content).toEqual([
+				{
+					type: "text",
+					text: JSON.stringify({ code: "missing", message: "No widget has that identifier." }),
+				},
+			]);
 		} finally {
 			await client.close();
 		}

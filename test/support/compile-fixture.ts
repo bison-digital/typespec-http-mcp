@@ -1,6 +1,5 @@
 import { rmSync } from "node:fs";
-import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { compile, NodeHost } from "@typespec/compiler";
 
 /**
@@ -20,22 +19,15 @@ export interface CompiledFixture {
 	/** Where `@typespec/openapi3` wrote, when `withDocument` was set. */
 	readonly documentDir: string;
 	readonly diagnostics: readonly { readonly code: string; readonly severity: string }[];
-}
-
-/**
- * The runtime contract, as a specifier the emitted files can resolve.
- *
- * **Relative, and spelled `.js`.** An absolute path bakes one machine's checkout into generated
- * output -- which `portability.test.ts` grades -- and a `.ts` extension is rejected under `nodenext`.
- */
-function runtimeFixtureModule(outDir: string): string {
-	const runtime = fileURLToPath(new URL("../../src/runtime.ts", import.meta.url));
-	const specifier = relative(outDir, runtime).replaceAll("\\", "/").replace(/\.ts$/, ".js");
-	return specifier.startsWith(".") ? specifier : `./${specifier}`;
+	/**
+	 * The same diagnostics with the message the compiler formatted, for an arm that has to know which
+	 * operation one was raised against. Kept apart so the arms comparing `{ code, severity }` exactly
+	 * are not rewritten around a field they do not grade.
+	 */
+	readonly messages: readonly { readonly code: string; readonly message: string }[];
 }
 
 export interface FixtureOptions {
-	readonly runtimeModule?: string;
 	/**
 	 * The output directory's name, when it must differ from the spec's.
 	 *
@@ -46,15 +38,6 @@ export interface FixtureOptions {
 	readonly outName?: string;
 	/** The full output directory, when a suite owns one of its own rather than sharing `dir/.out/`. */
 	readonly outDir?: string;
-	/**
-	 * Compile with NOTHING set but the output directory -- the configuration the README produces.
-	 *
-	 * **This exists because a harness that configures the default away means nothing ever compiles
-	 * the shipped default.** In the sibling package a defect lived in exactly that gap for the whole
-	 * life of the package: `runtime-module` was set by every fixture, so the emitter's own default
-	 * pointed at a module that resolved from nowhere and no arm noticed.
-	 */
-	readonly bare?: boolean;
 	/** Also run `@typespec/openapi3`, so an arm can compare the two artefacts a consumer receives. */
 	readonly withDocument?: boolean;
 	/** Anything else the emitter accepts, for an option a single suite exercises. */
@@ -83,19 +66,23 @@ export async function compileFixture(
 				: ["typespec-http-mcp"],
 		options: {
 			"@typespec/openapi3": { "emitter-output-dir": join(outDir, "openapi"), "file-type": "json" },
-			"typespec-http-mcp":
-				options.bare === true
-					? { "emitter-output-dir": outDir, ...options.extraOptions }
-					: {
-							"emitter-output-dir": outDir,
-							"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
-							...options.extraOptions,
-						},
+			/**
+			 * **Nothing set but the output directory, unless a suite asks for an option**, which is the
+			 * configuration the README produces. A harness that configured the runtime away used to mean
+			 * nothing compiled the shipped default: `runtime-module` was set by every fixture, and in the
+			 * sibling package the default it hid pointed at a module that resolved from nowhere. The
+			 * option is refused now, so every compile uses the runtime this package emits.
+			 */
+			"typespec-http-mcp": { "emitter-output-dir": outDir, ...options.extraOptions },
 		},
 	});
 	return {
 		outDir,
 		documentDir: join(outDir, "openapi"),
 		diagnostics: program.diagnostics.map((d) => ({ code: d.code, severity: d.severity })),
+		messages: program.diagnostics.map((d) => ({
+			code: d.code,
+			message: typeof d.message === "string" ? d.message : String(d.message),
+		})),
 	};
 }

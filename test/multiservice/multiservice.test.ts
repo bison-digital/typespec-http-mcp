@@ -30,7 +30,6 @@ let outDir: string;
 
 beforeAll(async () => {
 	const compiled = await compileFixture(here, "services", {
-		bare: true,
 		outName: "multiservice",
 	});
 	expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);

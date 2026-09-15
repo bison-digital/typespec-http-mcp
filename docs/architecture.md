@@ -9,8 +9,8 @@ What each module owns, and the boundaries `test/architecture/architecture.test.t
                           |
   DERIVE (read the program)          RENDER (produce text)        CONSUMER (copied out)
     select.ts    tags -> tools          tools.ts                    runtime.ts
-    refusals.ts  what cannot be a tool    |                           statusOf, armFor,
-    names.ts     ids -> tool names        |                           ResponseArm
+    refusals.ts  what cannot be a tool    |  statuses.ts              toolResult, armFor,
+    names.ts     ids -> tool names        |                           ResponseArm, errors
     annotations.ts verb -> hints          |
     coexistence.ts peers -> collisions    |
                           \               /
@@ -25,7 +25,9 @@ What each module owns, and the boundaries `test/architecture/architecture.test.t
 | `names.ts`       | tool names, MCP's name rule, collisions                       | **nothing**                                 |
 | `annotations.ts` | the RFC 9110 hints                                            | **nothing**                                 |
 | `coexistence.ts` | peer emitters writing where this one writes                   | the compiler                                |
-| `tools.ts`       | the text of `mcp.gen.ts`                                      | the library's types, `zod`, the SDK's types |
+| `tools.ts`       | the text of `mcp.gen.ts`, result unions included              | the library's types, `zod`, the SDK's types |
+| `statuses.ts`    | Hono's status-code sets, as values                            | **nothing**                                 |
+| `bodies.ts`      | what each response body is: JSON, text, bytes, unvalidated    | the library's types                         |
 | `runtime.ts`     | what emitted code imports at run time                         | **only what a consumer installs**           |
 | `emitter.ts`     | orchestration: run the library, select, refuse, render, write | everything above                            |
 
@@ -59,14 +61,16 @@ collision -- a guard that stops running with nothing to say so.
 
 ## The duplication that is deliberate, and what grades it
 
-Three things are written twice on purpose. Each is forced, each is stated, and each has an arm.
+These are written twice on purpose. Each is forced, each is stated, and each has an arm.
 
-| duplicated              | why it cannot be shared                                                                                                               | what grades it                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `ResponseArm`, `armFor` | the emitted `schemas.gen.ts` imports `ResponseArm` from the runtime module, and emitted output must never import a build-time package | `test/runtime/parity.test.ts`, against the library's own                                  |
-| `Fields`, `Produced`    | emitted as text into a file that imports nothing                                                                                      | `test/agreement/agreement.test.ts`, by compiling one handler object through both surfaces |
+| duplicated              | why it cannot be shared                                                                                                      | what grades it                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ResponseArm`, `armFor` | the runtime is copied into the consumer's output, and emitted output must never import a build-time package                  | `test/runtime/parity.test.ts`, against the library's own, by value and by type            |
+| `Fields`, `Produced`    | emitted as text into a file that imports nothing                                                                             | `test/agreement/agreement.test.ts`, by compiling one handler object through both surfaces |
+| result unions           | the sibling server emitter's derivation is not exported, and its status types name Hono's, which this output must not import | `test/agreement/agreement.test.ts`, `Identical<>` per operation                           |
+| status-code sets        | Hono declares them as types; a result union written as literals needs them as values                                         | `test/runtime/status-codes.test.ts`, against Hono's installed declaration file            |
 
-Both are permanent: they follow from emitted output having to be self-contained.
+All four are permanent: they follow from emitted output having to be self-contained.
 
 **A third was removed rather than documented.** `securityFor` was duplicated here because the library
 published only `scopes` and `noAuth` -- two lossy projections that discard which scheme demanded what

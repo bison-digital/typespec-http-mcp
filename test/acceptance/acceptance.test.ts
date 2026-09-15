@@ -32,30 +32,57 @@ interface Generated {
 }
 
 let generated: Generated;
-let runtime: { toolResult: Function; statusOf: Function };
 
 beforeAll(async () => {
 	const { outDir, diagnostics } = await compileFixture(
 		join(packageRoot, "test", "agreement"),
 		"service",
-		{ bare: true, outName: "acceptance" },
+		{ outName: "acceptance" },
 	);
 	expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 	generated = (await import(join(outDir, "mcp.gen.ts"))) as unknown as Generated;
-	runtime = (await import(join(outDir, "mcp-runtime.gen.ts"))) as never;
 }, 300_000);
 
-/** Every handler the fixture declares, returning something shaped like its response. */
+/** A few bytes with a PNG signature, which is all an image block needs to carry. */
+const PICTURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Every handler the fixture declares, returning a response the document declares for it. */
 function handlersFor(): Record<string, unknown> {
 	const widget = { id: "1", name: "a", colour: "grey" };
 	return {
-		reindex: () => undefined,
-		health: () => ({ status: "ok" }),
-		WidgetTools_list: () => ({ items: [widget], total: 1 }),
-		WidgetTools_read: () => widget,
-		WidgetTools_create: () => widget,
-		WidgetTools_replace: () => widget,
-		WidgetTools_remove: () => undefined,
+		reindex: () => ({ status: 204 }),
+		health: () => ({ status: 200, body: { status: "ok" } }),
+		WidgetTools_list: () => ({
+			status: 200,
+			body: { items: [widget], total: 1 },
+			headers: { "x-total-count": 1 },
+		}),
+		WidgetTools_read: (_ctx: unknown, input: { widgetId: string }) =>
+			input.widgetId === "missing"
+				? { status: 404, body: { resource: input.widgetId } }
+				: { status: 200, body: widget },
+		WidgetTools_create: () => ({ status: 201, body: widget }),
+		// `default` governs 202. Its body must be a Problem, as the document says, AND a Widget, as the
+		// tool published: one carrying both is answered, a Problem alone is refused.
+		WidgetTools_replace: (_ctx: unknown, input: { widgetId: string }) =>
+			input.widgetId === "accepted"
+				? { status: 202, body: { ...widget, code: "accepted", message: "queued" } }
+				: input.widgetId === "malformed"
+					? { status: 202, body: { code: "x", message: "not a widget" } }
+					: { status: 200, body: widget },
+		WidgetTools_picture: () => ({
+			status: 200,
+			// A type inside the `image/*` range, not the exact `image/png` beside it.
+			contentType: "image/webp",
+			body: new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(PICTURE);
+					controller.close();
+				},
+			}),
+		}),
+		WidgetTools_label: () => ({ status: 200, body: "widget one" }),
+		WidgetTools_remove: () => ({ status: 204 }),
 	};
 }
 
@@ -84,8 +111,6 @@ function handlerFor(grant: Grant) {
 				),
 			context: () => ({}),
 			noContext: () => ({ content: [{ type: "text", text: "no caller" }], isError: true }),
-			respond: (_c: unknown, declared: { arms: unknown[] }, result: unknown) =>
-				runtime.toolResult(declared, runtime.statusOf(declared.arms, result), result),
 		};
 		generated.registerTools(server, handlersFor, deps);
 		return server;
@@ -133,6 +158,100 @@ describe("a real client, over the wire, against emitted output", () => {
 		});
 		expect(status).toBe(200);
 		expect(json.result.structuredContent).toEqual({ id: "1", name: "a", colour: "grey" });
+	});
+
+	it("answers a declared 404 as a tool-execution error, with the failure's own body", async () => {
+		const { status, json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_read",
+			arguments: { widgetId: "missing" },
+		});
+		expect(status).toBe(200);
+		expect(json.result.isError).toBe(true);
+		expect(json.result.structuredContent).toBeUndefined();
+		expect(json.result.content).toEqual([
+			{ type: "text", text: JSON.stringify({ resource: "missing" }) },
+		]);
+	});
+
+	/**
+	 * **Two success statuses with different bodies publish no `outputSchema`, and this is why.**
+	 *
+	 * The SDK server refuses a result that is not an error and carries no `structuredContent` once a
+	 * tool declares an `outputSchema` ("Output validation error"), and a `201` whose body is not the
+	 * `200`'s cannot carry the `200`'s schema. Published anyway, the declared `201` would reach the
+	 * caller as a failure.
+	 */
+	it("answers a second success status with its own body, which a published outputSchema would refuse", async () => {
+		const listed = (await rpc(BEARER, "tools/list")).json as {
+			result: { tools: { name: string; outputSchema?: unknown }[] };
+		};
+		const create = listed.result.tools.find((tool) => tool.name === "WidgetTools_create");
+		expect(create).toBeDefined();
+		expect(create?.outputSchema).toBeUndefined();
+		// Non-vacuity: a tool whose successes share one body still publishes its schema.
+		const replace = listed.result.tools.find((tool) => tool.name === "WidgetTools_replace");
+		expect(replace?.outputSchema).toBeDefined();
+
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_create",
+			arguments: { name: "b" },
+		});
+		expect(json.result.isError).toBeUndefined();
+		expect(json.result.content).toEqual([
+			{ type: "text", text: JSON.stringify({ id: "1", name: "a", colour: "grey" }) },
+		]);
+	});
+
+	it("answers image bytes from a stream as an image block, over the wire", async () => {
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_picture",
+			arguments: { widgetId: "1" },
+		});
+		expect(json.result.isError).toBeUndefined();
+		expect(json.result.content).toEqual([
+			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/webp" },
+		]);
+	});
+
+	it("answers a text body as a text block, over the wire", async () => {
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_label",
+			arguments: { widgetId: "1" },
+		});
+		expect(json.result.content).toEqual([{ type: "text", text: "widget one" }]);
+	});
+
+	/**
+	 * **A success `default` governs meets the published schema, or fails by name.** Without the check,
+	 * the second call would reach the caller as the SDK's "has an output schema but no structured
+	 * content was provided", which names neither the operation's contract nor the body.
+	 */
+	it("answers a 2xx through default against the published outputSchema, over the wire", async () => {
+		const accepted = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_replace",
+			arguments: { widgetId: "accepted", name: "a" },
+		});
+		expect(accepted.json.result.isError, JSON.stringify(accepted.json)).toBeUndefined();
+		expect(accepted.json.result.structuredContent).toEqual({ id: "1", name: "a", colour: "grey" });
+
+		const malformed = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_replace",
+			arguments: { widgetId: "malformed", name: "a" },
+		});
+		expect(malformed.json.result.isError).toBe(true);
+		expect(malformed.json.result.content[0].text).toBe(
+			"WidgetTools_replace answered 202 with a body its document does not permit",
+		);
+	});
+
+	it("carries a success's response header in _meta, by its wire name", async () => {
+		const { json } = await rpc(BEARER, "tools/call", { name: "WidgetTools_list", arguments: {} });
+		// The SDK adds its own `serverInfo` beside it, so the key is read rather than the whole slot.
+		expect(json.result._meta["typespec-http-mcp/response-headers"]).toEqual({ "x-total-count": 1 });
+		expect(json.result.structuredContent).toEqual({
+			items: [{ id: "1", name: "a", colour: "grey" }],
+			total: 1,
+		});
 	});
 
 	/**

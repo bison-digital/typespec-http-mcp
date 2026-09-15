@@ -1,6 +1,7 @@
 import { getDiscriminator, type Program, type Type } from "@typespec/compiler";
 import type { HttpOperation } from "@typespec/http";
 import type { EmittedRoute, RouteSchemaNames } from "typespec-http-zod";
+import { hasContentBlock, unvalidatedResponsesOf } from "./bodies.js";
 
 /**
  * What this emitter cannot express as a tool, and what it can express but should warn about.
@@ -24,7 +25,9 @@ function isMultipart(contentType: string): boolean {
 export type Refusal =
 	| { readonly kind: "binary-tool-input"; readonly types: string }
 	| { readonly kind: "non-json-request"; readonly types: string }
-	| { readonly kind: "non-object-body"; readonly types: string };
+	| { readonly kind: "non-object-body"; readonly types: string }
+	| { readonly kind: "streamed-tool-output"; readonly types: string }
+	| { readonly kind: "binary-tool-output"; readonly types: string };
 
 /**
  * Whether a request body can be MERGED into a tool's argument object.
@@ -114,29 +117,83 @@ export function refusalFor(
 			return { kind: "non-object-body", types: body?.kind ?? "unknown" };
 		}
 	}
+
+	/**
+	 * **A stream is not one message, and a tool result is.** An SSE or JSONL response is unbounded and
+	 * arrives over time; a tool call answers once. Buffering it would wait on a stream that may never
+	 * end, and answering its first event would publish a contract no reader of the document could
+	 * predict.
+	 */
+	const streamed = route.responses.filter((response) => response.streamed);
+	if (streamed.length > 0) {
+		return {
+			kind: "streamed-tool-output",
+			types: streamed.flatMap((response) => response.contentTypes).join(", ") || "a stream",
+		};
+	}
+
+	/**
+	 * **Raw bytes are a tool result only where MCP has a block for them.** An `image/*` or `audio/*`
+	 * body is answered as an `image` or `audio` content block, which carries the data and its media
+	 * type. Any other binary body -- `application/octet-stream`, a PDF -- could only be an embedded
+	 * resource, and a resource needs a URI the document never states. Base64-ing the bytes into a text
+	 * block would put a download through a model's context window under an encoding nothing published.
+	 * Refused if ANY declared response offers such a type, because a handler may answer with any of
+	 * them.
+	 */
+	const unanswerable = route.responses
+		.filter((response) => response.binary)
+		.flatMap((response) => response.contentTypes)
+		.filter((type) => !hasContentBlock(type));
+	if (unanswerable.length > 0) {
+		return { kind: "binary-tool-output", types: [...new Set(unanswerable)].join(", ") };
+	}
 	return undefined;
 }
+
+/** A quality warning, with what its message names. */
+export type Warning =
+	| { readonly code: "headers-only-success" | "tool-without-description"; readonly format: object }
+	| {
+			readonly code: "unvalidated-response-media-type";
+			readonly format: { readonly status: string; readonly types: string };
+	  };
 
 /**
  * Quality warnings: the tool is still emitted.
  *
- * `headers-only-success` fires where the success arm carries headers and no body, so everything the
- * operation produces lands in `_meta` -- which a model does not read.
+ * `headers-only-success` fires where a 2xx or 3xx response carries headers and no body, so everything
+ * that response produces lands in `_meta` -- which a model does not read. Read off each declared
+ * response, ranges included, because a `2XX` with a header and no body answers the same way.
+ *
+ * `unvalidated-response-media-type` fires once per status whose body under some media type is a model
+ * no serialisation derives from -- an `Item` as `application/xml`. The handler supplies that text and
+ * the tool answers it unvalidated. The sibling server emitter raises the same warning, under the same
+ * code, for the same responses.
  */
 export function warningsFor(
 	route: EmittedRoute,
 	names: RouteSchemaNames,
 	described: boolean,
-): readonly ("headers-only-success" | "tool-without-description")[] {
-	const warnings: ("headers-only-success" | "tool-without-description")[] = [];
-	const successStatuses = new Set(route.statusCodes.filter((status) => status < 400));
-	const declaresSuccessHeaders = route.responseHeaders.some(
-		(entry) =>
-			typeof entry.status === "number" &&
-			successStatuses.has(entry.status) &&
-			entry.headers.length > 0,
+): readonly Warning[] {
+	const warnings: Warning[] = [];
+	const headersOnlySuccess = route.responses.some(
+		(response) =>
+			isSuccess(response.status) && response.schema === undefined && response.headers.length > 0,
 	);
-	if (names.response === undefined && declaresSuccessHeaders) warnings.push("headers-only-success");
-	if (!described) warnings.push("tool-without-description");
+	if (headersOnlySuccess) warnings.push({ code: "headers-only-success", format: {} });
+	for (const { status, types } of unvalidatedResponsesOf(route, names)) {
+		warnings.push({
+			code: "unvalidated-response-media-type",
+			format: { status: String(status), types: types.join(", ") },
+		});
+	}
+	if (!described) warnings.push({ code: "tool-without-description", format: {} });
 	return warnings;
+}
+
+/** A 2xx or 3xx status key, exact or ranged. */
+function isSuccess(status: EmittedRoute["responses"][number]["status"]): boolean {
+	if (typeof status === "number") return status >= 200 && status < 400;
+	return status === "2XX" || status === "3XX";
 }

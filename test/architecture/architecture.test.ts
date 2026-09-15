@@ -119,9 +119,12 @@ describe("the renderer renders, and the derivations derive", () => {
 	});
 
 	it("the pure derivations stay pure", () => {
-		for (const file of ["annotations.ts", "names.ts"]) {
+		for (const file of ["annotations.ts", "names.ts", "statuses.ts"]) {
 			expect(externalsOf(file), file).toEqual([]);
 		}
+		// The body kinds read the library's published response records and nothing else, so the
+		// renderer and the refusals can share them without either reaching the compiler through them.
+		expect(externalsOf("bodies.ts")).toEqual(["typespec-http-zod"]);
 	});
 
 	it("only the orchestrator imports the orchestrator", () => {

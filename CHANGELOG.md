@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking
+
+- **A handler returns `{ status, body, headers }` for any response the document declares**, failures
+  included. Each operation has a result union, `<OperationId>Result`, the same type the sibling
+  server emitter declares, and `Tools<C>` types every handler as a property
+  `(ctx: C, input) => Awaitable<Result>`.
+- **`deps.respond` is removed**, along with `Result<T>`, `Ctx`, `statusOf` and an arm's `when`. The
+  generated callback returns `toolResult(declared, operationId, result)`, which selects the arm by
+  `result.status`, parses a JSON body against that status's schema and answers the parsed value,
+  throws `ResponseContractError` for a body the schema refuses and `UndeclaredStatusError` for a
+  status no response governs, sets `isError` from the status, and carries declared response headers
+  in `_meta["typespec-http-mcp/response-headers"]` by wire name.
+- **`ToolDeps<C>` and `registerTools<C, T>`**: the caller context is inferred from what
+  `deps.context` returns rather than declared in a substituted module.
+- **`runtime-module` is refused with `runtime-module-removed`, an error.** `mcp-runtime.gen.ts` is
+  written on every compile and the generated file always imports it.
+- **`outputSchema` is published only where every 2xx and 3xx response shares one JSON body**, the
+  body of the lowest exact status. The SDK refuses a success without `structuredContent` once a tool
+  declares an `outputSchema`, so an operation with two success bodies, or a bodyless success beside a
+  bodied one, publishes none.
+- `headers-only-success` reads each declared response: it fires for any 2xx or 3xx response with
+  headers and no body.
+- **`toolResult` is asynchronous**, because a binary body may be a stream it reads to the end.
+- **A body that is not JSON is answered as the MCP content block for its kind.** A string under
+  `text/plain` is parsed against its schema and answered as a `text` block. Bytes under `image/*` or
+  `audio/*` are answered as an `image` or `audio` block with base64 `data` and the served `mimeType`,
+  from a `Uint8Array`, an `ArrayBuffer` or a `ReadableStream`. A model under `application/xml` is the
+  text the handler supplies, unvalidated. The generated call passes the kinds as
+  `ToolResponses.bodies`, keyed by status, only where one applies.
+- **New refusals, `binary-tool-output` and `streamed-tool-output`**: an operation answering bytes no
+  content block carries, or a stream, is not a tool.
+- **A 2xx or 3xx answered through `default` must meet the published `outputSchema`**, and throws
+  `ResponseContractError` when it does not, where the SDK used to answer "no structured content".
+
+### Added
+
+- `unvalidated-response-media-type`, the warning `typespec-hono` raises for a model served under a
+  media type that is not JSON, with the same trigger.
+
+### Fixed
+
+- `shared-output-dir` counts another emitter as running `typespec-http-zod` when its published option
+  schema accepts the library's options. It used to require that one of them was SET, so an emitter on
+  its defaults beside one setting `compile-schemas` rewrote `schemas.gen.ts` with nothing said. Every
+  arm had configured `runtime-module` on both emitters, which hid it.
+- A media type range such as `image/*` admits the concrete type a handler answers with, which it
+  used to refuse as undeclared. The handler's `contentType` is typed `` `image/${string}` ``, the type
+  the server emitter gives it, and the range's own spelling or a type with no subtype is refused.
+
 ## 0.1.0
 
 Unreleased.

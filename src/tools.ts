@@ -1,11 +1,14 @@
 import {
 	jsDocComment,
 	objectKey,
+	type EmittedResponse,
 	type EmittedRoute,
 	type RouteSchemaNames,
 } from "typespec-http-zod";
 import { annotationsFor, type ToolAnnotations } from "./annotations.js";
+import { bodyKindsOf, bodyServingOf, isJsonMediaType, isMediaRange, membersOf } from "./bodies.js";
 import type { SecurityRequirement } from "./runtime.js";
+import { CONTENTLESS_STATUS_CODES, STATUS_GROUPS } from "./statuses.js";
 
 /**
  * **Rendering lives here, with everything else that produces text.**
@@ -39,13 +42,13 @@ function renderAnnotations(annotations: ToolAnnotations): string {
 }
 
 /**
- * The helper types the generated signatures need, byte-identical to the sibling emitter's.
+ * The helper types the generated signatures need, the same types the sibling emitter declares.
  *
  * **Emitted only where a signature uses one.** A generated file has to pass the lint of whatever
  * project it lands in, and `noUnusedLocals` is an error under the settings a consumer builds with:
- * a service with no parameters anywhere never uses `Fields`, and one whose every operation returns
- * `void` never uses `Produced`. Measured across the conformance corpus, that was 29 of 65 emitted
- * files failing to compile.
+ * a service with no parameters anywhere never uses `Fields`, and one whose every result carries no
+ * validated body never uses `Produced`. Measured across the conformance corpus, that was 29 of 65
+ * emitted files failing to compile.
  */
 const FIELDS_HELPER = `/**
  * A validator's fields, or nothing at all when it declares none.
@@ -99,6 +102,25 @@ type Produced<T> = T extends (...args: never[]) => unknown
 `;
 
 const EMPTY_INPUT = "Record<string, never>";
+
+/**
+ * Where emitted output imports its runtime from: the copy this package writes beside it.
+ *
+ * **Always this module.** `runtime-module` used to replace it, and that made an application own a
+ * copy of generated logic -- see the `runtime-module-removed` diagnostic.
+ *
+ * **Deliberately NOT `./runtime.gen.js`, which is what the sibling server emitter uses.** Both
+ * emitters run `typespec-http-zod`, and a consumer who wants both surfaces may point them at one
+ * output directory. `emitFile` has no duplicate-path detection -- measured, `@typespec/compiler`
+ * 1.15.0 `dist/src/core/emitter-utils.js:19-27` -- so two emitters writing one path is a silent
+ * last-writer-wins whose winner is decided by the ORDER of `emit:` in `tspconfig.yaml`. Measured
+ * end to end: with divergent `seal-object-schemas`, one order produced 19 unsealed objects and the
+ * other 11 unsealed plus 8 sealed, exit 0 and no diagnostic either time.
+ *
+ * Giving this package its own runtime filename means the only file the two can contest is
+ * `schemas.gen.ts`, which is byte-identical under identical options.
+ */
+export const DEFAULT_RUNTIME_MODULE = "./mcp-runtime.gen.js";
 
 export interface ToolEntry {
 	readonly route: EmittedRoute;
@@ -163,11 +185,170 @@ function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	return `${constructor}({ ${spreads.join(", ")} })`;
 }
 
-/** The handler's return type: the body a producer must supply, plus the envelope it must state. */
-function outputTypeOf(entry: ToolEntry): string {
-	return entry.names.response === undefined
-		? "void"
-		: `Produced<z.infer<typeof ${entry.names.response}>>`;
+/** The codes of the status group a range key names. */
+function groupCodesOf(status: `${1 | 2 | 3 | 4 | 5}XX`): readonly number[] {
+	return STATUS_GROUPS[Number(status.charAt(0)) as 1 | 2 | 3 | 4 | 5].codes;
+}
+
+/**
+ * The type of the `contentType` a handler names for a member: the sibling emitter's rule.
+ *
+ * **A range is typed as the types inside it**: `image/*` is `` `image/${string}` ``, so `text/html`
+ * under it does not compile, and TypeScript still narrows a literal member away from it. Only the
+ * full range is `string`.
+ */
+function contentTypeTypeOf(mediaType: string): string {
+	if (!isMediaRange(mediaType)) return JSON.stringify(mediaType);
+	if (mediaType === "*/*") return "string";
+	return `\`${mediaType.slice(0, -1)}\${string}\``;
+}
+
+/**
+ * A member's status as a TypeScript type: disjoint from every other member's, by construction.
+ *
+ * **Written as a union of literals, never as Hono's type names.** This package's output imports no
+ * Hono, so where the sibling emitter writes `Exclude<ClientErrorStatusCode, 404 | ContentlessStatusCode>`
+ * this writes the codes that expression resolves to, from the same sets (`statuses.ts`, held equal to
+ * Hono's declaration file by test):
+ *
+ * - an exact code is itself;
+ * - a range is its group, less every code the operation declares exactly, and less the statuses that
+ *   cannot carry a body where the range has one;
+ * - `default` is every official status from 2xx to 5xx, less the exact codes, less every code a
+ *   declared range covers, and less the contentless statuses where it has a body.
+ *
+ * **Disjoint is the property that makes a wrong body a compile error**: were `default` allowed to
+ * overlap a declared status, a 404 carrying the default arm's body would type-check through it.
+ */
+function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
+	const { status } = response;
+	if (typeof status === "number") return String(status);
+	const exact = new Set(
+		route.responses.flatMap((candidate) =>
+			typeof candidate.status === "number" ? [candidate.status] : [],
+		),
+	);
+	const contentless = new Set<number>(
+		response.schema === undefined ? [] : CONTENTLESS_STATUS_CODES,
+	);
+	const candidates =
+		status === "default"
+			? ([2, 3, 4, 5] as const).flatMap((digit) => STATUS_GROUPS[digit].codes)
+			: groupCodesOf(status);
+	const ranged = new Set(
+		status === "default"
+			? route.responses.flatMap((candidate) =>
+					typeof candidate.status === "string" && candidate.status !== "default"
+						? groupCodesOf(candidate.status)
+						: [],
+				)
+			: [],
+	);
+	const codes = candidates
+		.filter((code) => !exact.has(code) && !ranged.has(code) && !contentless.has(code))
+		.toSorted((a, b) => a - b);
+	return codes.length === 0 ? "never" : codes.join(" | ");
+}
+
+/**
+ * The union a handler returns: `{ status, body, headers }` for every response the document declares.
+ *
+ * **Data rather than a transport response**, so one handler object serves this tool surface and the
+ * HTTP server the sibling emitter generates, and the result type is the same type in both files.
+ */
+function resultTypeOf(entry: ToolEntry): string {
+	const members = membersOf(entry.route, entry.names).map((member) => {
+		const { response } = member;
+		const fields = [`readonly status: ${statusTypeOf(response, entry.route)}`];
+		if (member.choosesMediaType && member.mediaType !== undefined) {
+			fields.push(`readonly contentType: ${contentTypeTypeOf(member.mediaType)}`);
+		}
+		switch (bodyServingOf(member)) {
+			case "none":
+				fields.push("readonly body?: undefined");
+				break;
+			case "stream":
+				fields.push("readonly body: ReadableStream");
+				break;
+			case "binary":
+				fields.push("readonly body: ReadableStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
+				break;
+			case "unvalidated":
+				fields.push("readonly body: string");
+				break;
+			default:
+				fields.push(`readonly body: Produced<z.infer<typeof ${member.schemaName}>>`);
+		}
+		if (response.headers.length > 0) {
+			/**
+			 * Keyed by the WIRE name, as the document publishes it. `headers` itself is optional only when
+			 * every header in it is, so a response declaring a required header cannot be returned without.
+			 */
+			const every = response.headers.every((header) => header.optional);
+			const rendered = response.headers
+				.map((header) =>
+					header.optional
+						? `readonly ${objectKey(header.name)}?: ${header.type} | undefined`
+						: `readonly ${objectKey(header.name)}: ${header.type}`,
+				)
+				.join("; ");
+			fields.push(`readonly headers${every ? "?" : ""}: { ${rendered} }`);
+		}
+		return `{ ${fields.join("; ")} }`;
+	});
+	const body =
+		members.length <= 1
+			? ` ${members[0] ?? "never"}`
+			: members.map((member) => `\n\t| ${member}`).join("");
+	return `export type ${resultTypeName(entry)} =${body};`;
+}
+
+/**
+ * The published operation id with its first letter raised, and nothing else changed: the same name
+ * the sibling emitter gives the same operation's result.
+ */
+function resultTypeName(entry: ToolEntry): string {
+	const id = entry.route.operationId;
+	return `${id.charAt(0).toUpperCase()}${id.slice(1)}Result`;
+}
+
+/**
+ * The schema a tool publishes as its `outputSchema`, or `undefined` where it publishes none.
+ *
+ * **The body of the lowest exact 2xx or 3xx status**, the operation's plainest success, and only
+ * where every success the document declares answers with that same body, served as JSON.
+ *
+ * **The second condition is MCP's, not a preference.** A tool declaring an `outputSchema` must return
+ * `structuredContent` conforming to it on every result that is not an error, and the SDK client
+ * enforces it: `@modelcontextprotocol/client` throws "has an output schema but did not return
+ * structured content" for such a result. The runtime puts a body in `structuredContent` only when its
+ * arm's schema is the published one, so an operation answering `201` with one body and `200` with
+ * another, or `204` with none, would publish a schema one of its own successes cannot meet. A range
+ * or `default` is never the published schema itself: neither names a status a caller can expect.
+ */
+function outputSchemaOf(entry: ToolEntry): string | undefined {
+	const { responses } = entry.route;
+	const successes = responses.flatMap((response, index) =>
+		isSuccessStatus(response.status) ? [{ response, index }] : [],
+	);
+	const lowest = successes
+		.filter((success) => typeof success.response.status === "number")
+		.toSorted((a, b) => Number(a.response.status) - Number(b.response.status))[0];
+	if (lowest === undefined) return undefined;
+	const schema = entry.names.arms[lowest.index]?.schema;
+	if (schema === undefined) return undefined;
+	const servesSchemaAsJson = ({ response, index }: { response: EmittedResponse; index: number }) =>
+		entry.names.arms[index]?.schema === schema &&
+		!response.streamed &&
+		!response.binary &&
+		response.contentTypes.every(isJsonMediaType);
+	return successes.every(servesSchemaAsJson) ? schema : undefined;
+}
+
+/** A 2xx or 3xx status key, exact or ranged. */
+function isSuccessStatus(status: EmittedResponse["status"]): boolean {
+	if (typeof status === "number") return status >= 200 && status < 400;
+	return status === "2XX" || status === "3XX";
 }
 
 function inputSchemaName(entry: ToolEntry): string {
@@ -193,7 +374,6 @@ export function renderTools(
 	entries: readonly ToolEntry[],
 	declaredOperationIds: readonly string[],
 	options: {
-		readonly runtimeModule: string;
 		readonly sealed: boolean;
 		readonly hint: string | undefined;
 	},
@@ -202,20 +382,32 @@ export function renderTools(
 	for (const entry of entries) {
 		for (const name of intersectedValidators(entry)) imported.add(name);
 		if (entry.names.body !== undefined) imported.add(entry.names.body);
-		if (entry.names.response !== undefined) imported.add(entry.names.response);
+		for (const member of membersOf(entry.route, entry.names)) {
+			const serving = bodyServingOf(member);
+			if ((serving === "json" || serving === "text") && member.schemaName !== undefined) {
+				imported.add(member.schemaName);
+			}
+		}
+		const outputSchema = outputSchemaOf(entry);
+		if (outputSchema !== undefined) imported.add(outputSchema);
 		imported.add(entry.names.responses);
 	}
 
 	/**
-	 * Only the names a signature uses. `Awaitable`, `Ctx` and `Result` appear in the `Tools` methods,
-	 * so a service whose every operation is refused declares them and uses none -- `noUnusedLocals` is
-	 * an error in the settings a consumer builds with.
+	 * Only the names a signature uses. `Awaitable` appears in the `Tools` properties and `toolResult`
+	 * in each registration, so a service whose every operation is refused declares them and uses none
+	 * -- `noUnusedLocals` is an error in the settings a consumer builds with.
+	 *
+	 * **Always the runtime this package writes beside the file.** It used to be whatever
+	 * `runtime-module` named, which made an application own a copy of the rules below.
 	 */
-	const runtimeNames = ["McpServer", "ServerContext", "ToolDeps"];
-	if (entries.length > 0) runtimeNames.push("Awaitable", "Ctx", "Result");
-	const runtimeImport = `import type { ${runtimeNames.toSorted().join(", ")} } from ${JSON.stringify(
-		options.runtimeModule,
-	)};`;
+	const runtimeTypes = ["McpServer", "ServerContext", "ToolDeps"];
+	if (entries.length > 0) runtimeTypes.push("Awaitable");
+	const from = JSON.stringify(DEFAULT_RUNTIME_MODULE);
+	const runtimeImport = [
+		...(entries.length > 0 ? [`import { toolResult } from ${from};`] : []),
+		`import type { ${runtimeTypes.toSorted().join(", ")} } from ${from};`,
+	].join("\n");
 	const schemaImport =
 		imported.size === 0
 			? ""
@@ -227,13 +419,20 @@ export function renderTools(
 	 * exists to remove.
 	 */
 	const usesFields = entries.some((entry) => intersectedValidators(entry).length > 0);
-	const usesProduced = entries.some((entry) => entry.names.response !== undefined);
+	const usesProduced = entries.some((entry) =>
+		membersOf(entry.route, entry.names).some((member) => {
+			const serving = bodyServingOf(member);
+			return serving === "json" || serving === "text";
+		}),
+	);
 	const helpers = `${usesFields ? FIELDS_HELPER : ""}${usesProduced ? PRODUCED_HELPER : ""}`;
 	/** Every tool declares an input schema, so `z` is used exactly when there is a tool. */
 	const usesZod = entries.length > 0;
 	/**
 	 * Every parameter is unread when nothing is registered, and `noUnusedParameters` is an error in
-	 * the settings a consumer builds with. The underscore says the omission is deliberate.
+	 * the settings a consumer builds with. The underscore says the omission is deliberate. `Tools`'
+	 * caller context is unread for the same reason, and `noUnusedLocals` refuses an unused type
+	 * parameter unless its name starts with one.
 	 */
 	const u = entries.length === 0 ? "_" : "";
 
@@ -241,10 +440,17 @@ export function renderTools(
 		.map((entry) => `const ${inputSchemaName(entry)} = ${inputSchemaOf(entry, options.sealed)};`)
 		.join("\n");
 
+	const resultTypes = entries.map(resultTypeOf).join("\n\n");
+
+	/**
+	 * **A PROPERTY signature, not a method signature, and the difference is a check.** TypeScript
+	 * compares a method signature's parameters bivariantly, so a handler declaring a richer caller
+	 * context than `deps.context` produces would compile against the method form.
+	 */
 	const methods = entries
 		.map((entry) => {
 			const doc = jsDocComment(entry.description, "\t");
-			return `${doc}\t${entry.route.operationId}(ctx: Ctx, input: ${inputTypeOf(entry)}): Awaitable<Result<${outputTypeOf(entry)}>>;`;
+			return `${doc}\treadonly ${objectKey(entry.route.operationId)}: (ctx: C, input: ${inputTypeOf(entry)}) => Awaitable<${resultTypeName(entry)}>;`;
 		})
 		.join("\n");
 
@@ -274,11 +480,18 @@ export function renderTools(
 				entry.description === undefined
 					? ""
 					: `\n\t\t\t\tdescription: ${JSON.stringify(entry.description)},`;
-			const outputSchema =
-				entry.names.response === undefined
+			const published = outputSchemaOf(entry);
+			const outputSchema = published === undefined ? "" : `\n\t\t\t\toutputSchema: ${published},`;
+			/**
+			 * The body kinds the runtime cannot read off an arm, only where one applies: a JSON body is
+			 * known from its media type, and most operations answer nothing else.
+			 */
+			const kinds = bodyKindsOf(entry.route);
+			const bodies =
+				kinds.length === 0
 					? ""
-					: `\n\t\t\t\toutputSchema: ${entry.names.response},`;
-			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${entry.names.response ?? "undefined"} }`;
+					: `, bodies: { ${kinds.map(([status, kind]) => `${JSON.stringify(status)}: ${JSON.stringify(kind)}`).join(", ")} }`;
+			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${published ?? "undefined"}${bodies} }`;
 			/**
 			 * **A parameterless tool must not DECLARE an argument it never reads.**
 			 *
@@ -301,9 +514,9 @@ export function renderTools(
 			async (${argumentName}, context) => {
 				const ctx = deps.context(context, ${entry.route.noAuth ? '"none"' : '"required"'});
 				if (ctx === null) return deps.noContext(context);
-				return deps.respond(
-					context,
+				return toolResult(
 					${declared},
+					${JSON.stringify(entry.route.operationId)},
 					await handlersFor(context).${entry.route.operationId}(ctx, ${argument}),
 				);
 			},
@@ -322,14 +535,16 @@ ${usesZod ? 'import { z } from "zod";\n' : ""}${runtimeImport}
 ${schemaImport}
 ${helpers}
 ${inputConsts}
-
+${resultTypes === "" ? "" : `\n${resultTypes}\n`}
 /**
- * One method per TOOL, each concretely typed from the schemas it validates against.
+ * One handler per TOOL, each concretely typed from the schemas it validates against, returning
+ * \`{ status, body, headers }\` for any response the document declares.
  *
  * **These are the same signatures a generated HTTP server emits for the same operations**, derived
  * from the same artefacts by the same rules, so ONE handler implementation serves both surfaces.
+ * \`C\` is the caller context \`deps.context\` establishes.
  */
-export interface Tools {
+export interface Tools<${u}C = unknown> {
 ${methods}
 }
 
@@ -387,10 +602,10 @@ export const TOOL_NAMES = [${ordered.map((entry) => JSON.stringify(entry.toolNam
  * tool they cannot call. Returns the names actually registered, which is the only way an application
  * can observe a grant that selected nothing.
  */
-export function registerTools<T extends Tools>(
+export function registerTools<C, T extends Tools<C>>(
 	${u}server: McpServer,
 	${u}handlersFor: (context: ServerContext) => ToolsExhaustive<T>,
-	${u}deps: ToolDeps,
+	${u}deps: ToolDeps<C>,
 ): readonly string[] {
 	const registered: string[] = [];
 ${registrations}

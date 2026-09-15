@@ -30,9 +30,9 @@ You own the `McpServer`, the transport and the authentication in front of it. Th
 the tool definitions and the dispatch into your handlers, and nothing else.
 
 ```ts
-import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
 import { registerTools } from "./generated/mcp.gen.js";
-import { toolResult, statusOf, type ToolDeps } from "./generated/mcp-runtime.gen.js";
+import type { ToolDeps } from "./generated/mcp-runtime.gen.js";
 import { handlers } from "./handlers.js"; // the same object your HTTP server gets
 
 /**
@@ -43,7 +43,7 @@ import { handlers } from "./handlers.js"; // the same object your HTTP server ge
 const handler = createMcpHandler((context) => {
 	const scopes = context.authInfo?.scopes ?? [];
 
-	const deps: ToolDeps = {
+	const deps: ToolDeps<AuthInfo> = {
 		permits: (requirements) =>
 			requirements.length === 0 ||
 			requirements.some((requirement) =>
@@ -53,8 +53,6 @@ const handler = createMcpHandler((context) => {
 			),
 		context: (serverContext) => serverContext.http?.authInfo ?? null,
 		noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
-		respond: (_serverContext, declared, result) =>
-			toolResult(declared, statusOf(declared.arms, result), result),
 	};
 
 	const server = new McpServer({ name: "widgets", version: "1.0.0" });
@@ -73,12 +71,11 @@ export default {
 returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
 `TypeError: handler is not a function`.
 
-**Write the handler factory unannotated.** Annotating it widens the value, and the check that refuses
-a handler for an operation the spec no longer declares evaporates.
-
-An application with no result envelope of its own writes exactly the `respond` above and is finished.
-One that has an envelope unwraps it there -- that is the only place it can be unwrapped, because this
-emitter has no idea what a failure looks like in your application and must not invent one.
+`ToolDeps<AuthInfo>` says what `context` returns, and `registerTools` infers the caller every handler
+receives from it. A handler returns `{ status, body, headers }` for a response the document declares;
+see [What a handler returns](../README.md#what-a-handler-returns). There is no hook turning a result
+into a tool result: the generated callback hands the handler's result to `toolResult`, which serves
+it by the rules the document and the MCP specification state.
 
 ## Authenticating the server
 
@@ -139,7 +136,7 @@ export default {
 see it. **It is not populated otherwise** -- measured: without it, `context.http.authInfo` is `null`.
 
 ```ts
-const deps: ToolDeps = {
+const deps: ToolDeps<AuthInfo> = {
 	// Consulted at REGISTRATION, so a caller never sees a tool they could not call.
 	permits: (requirements) =>
 		requirements.length === 0 ||
@@ -151,8 +148,6 @@ const deps: ToolDeps = {
 		),
 	context: (context) => context.http?.authInfo ?? null,
 	noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
-	respond: (_context, declared, result) =>
-		toolResult(declared, statusOf(declared.arms, result), result),
 };
 ```
 
@@ -173,14 +168,34 @@ emit: ["typespec-hono", "typespec-http-mcp"]
 options:
   typespec-hono:
     emitter-output-dir: "{project-root}/src/generated"
-    runtime-module: "../runtime.js"
   typespec-http-mcp:
     emitter-output-dir: "{project-root}/src/generated"
-    runtime-module: "../runtime.js"
 ```
 
 Both emitters run `typespec-http-zod`, so with identical options they write a byte-identical
-`schemas.gen.ts`, and one `runtime.js` gives both surfaces one `Ctx` and one `Result<T>`.
+`schemas.gen.ts`, which imports nothing but Zod. Each writes its own runtime beside it,
+`runtime.gen.ts` and `mcp-runtime.gen.ts`, and neither is replaced.
+
+The two surfaces type a handler identically: the same input, the same caller context, and the same
+`{ status, body, headers }` union for each operation. So one object serves both:
+
+```ts
+import { registerRoutes, type Operations } from "./generated/app.gen.js";
+import { registerTools } from "./generated/mcp.gen.js";
+
+const operations = {
+	WidgetTools_read: (caller: Caller, input) => ({ status: 200, body: widgets.get(input.widgetId) }),
+	// ...every operation the document declares
+} satisfies Operations<Caller>;
+
+registerRoutes(app, () => operations, routeDeps); // routeDeps: RouteDeps<AppEnv, Caller>
+registerTools(server, () => operations, toolDeps); // toolDeps: ToolDeps<Caller>
+```
+
+`satisfies Operations<Caller>` rather than `Tools<Caller>`, because a tool set may be a subset of the
+operations and `satisfies` refuses a key its target does not name. Both registration calls still
+refuse a handler for an operation the document no longer declares. `test/agreement/` compiles an
+object like this one through both surfaces and holds every operation's signature identical.
 
 **If the options differ, the emitters silently overwrite each other and the order of `emit:` decides
 the winner.** `shared-output-dir` warns about exactly that case; see `docs/reference.md`.
@@ -203,3 +218,36 @@ const MCP_PROTOCOL_VERSION = "2026-07-28"; // NOT LATEST_PROTOCOL_VERSION, which
 
 Every request also needs `_meta` carrying `io.modelcontextprotocol/protocolVersion`, `clientInfo` and
 `clientCapabilities`.
+
+## Upgrading
+
+### From `runtime-module` and `deps.respond`
+
+**`runtime-module` is refused with `runtime-module-removed`, an error.** `mcp-runtime.gen.ts` is
+written on every compile and the generated file always imports it. A module the option pointed at can
+be deleted; what it declared has a place of its own:
+
+| a substituted module declared, or a `respond` did | now                                                                  |
+| ------------------------------------------------- | -------------------------------------------------------------------- |
+| `Ctx`                                             | inferred by `registerTools` from what `deps.context` returns         |
+| `Result<T>`                                       | the union of the responses the document declares, `{ status, body }` |
+| `statusOf(declared.arms, result)`                 | the handler returns `status`                                         |
+| a failure thrown, or mapped to an envelope        | the handler returns the declared failure response                    |
+| checking the body against `arm.schema`            | done by `toolResult`, for failures too, as `ResponseContractError`   |
+| response headers read off the result              | the handler returns `headers`, keyed by wire name                    |
+| `when` on an arm, choosing between two successes  | the handler returns the status it means                              |
+
+**A handler returns `{ status, body }`.**
+
+```ts
+// before
+WidgetTools_read: (ctx, input) => widgets.get(input.widgetId),
+// after
+WidgetTools_read: (caller, input) => ({ status: 200, body: widgets.get(input.widgetId) }),
+```
+
+**`deps` loses `respond`**, and `ToolDeps` takes the caller type: `ToolDeps<Caller>`.
+
+A thrown `ResponseContractError` or `UndeclaredStatusError` reaches the SDK, which answers the call
+as a tool-execution error. An application that wants a different answer catches them in its
+handlers' adapter.

@@ -36,7 +36,9 @@ Consequences, both:
 1. **The callback does not run**, so the emitter still mounts no validation and needs no `invalid`
    hook for correctness. That half of the plan stands.
 2. **But the error envelope is the SDK's, not the application's.** A validation failure does not pass
-   through `deps.respond`, so it does not wear the app's envelope, while every declared 4xx does.
+   through the handler, so it does not carry a body the document declares, while every declared 4xx
+   does. (Recorded when that went through `deps.respond`; the hook has since been removed and a
+   handler returns the declared failure itself, which leaves this asymmetry as it was.)
    That inconsistency is real and must be stated in `docs/reference.md` rather than discovered.
    Whether to offer an optional `invalid` hook purely so an application can make the two uniform is
    now a genuine design question, not a correctness one - deferred, and recorded here so it is not

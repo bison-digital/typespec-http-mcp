@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { workingTreeFiles } from "./support/working-tree.js";
 
 /**
  * **No two suites may compile into one directory.**
@@ -18,9 +18,9 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const SELF = "test/isolation.test.ts";
 
 describe("no two suites share a compile destination", () => {
-	const suites = execFileSync("git", ["ls-files", "test"], { cwd: packageRoot, encoding: "utf8" })
-		.split("\n")
-		.filter((name) => name.endsWith(".test.ts") && name !== SELF);
+	const suites = workingTreeFiles(packageRoot, "test").filter(
+		(name) => name.endsWith(".test.ts") && name !== SELF,
+	);
 
 	it("has suites to inspect at all", () => {
 		expect(suites.length).toBeGreaterThanOrEqual(5);

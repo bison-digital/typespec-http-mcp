@@ -13,18 +13,24 @@
  * build. `socket.test.ts` compiles it against freshly emitted output instead.
  */
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { registerTools } from "./.out/socket/mcp.gen.js";
-import { statusOf, toolResult, type ToolDeps } from "./.out/socket/mcp-runtime.gen.js";
+import { registerTools, type Tools } from "./.out/socket/mcp.gen.js";
+import type { ToolDeps } from "./.out/socket/mcp-runtime.gen.js";
 
-/** The same handler object an HTTP server would be given. Unannotated, deliberately. */
+/**
+ * The same handler object an HTTP server would be given. **`satisfies`, not an annotation**, so each
+ * `status` stays the literal that selects its response and `registerTools` still sees every key.
+ */
 const widget = { id: "1", name: "a", colour: "grey" };
 const handlers = {
-	health: () => ({ status: "ok" }),
-	WidgetTools_list: () => ({ items: [widget], total: 1 }),
-	WidgetTools_read: () => widget,
-	WidgetTools_create: () => widget,
-	WidgetTools_remove: () => undefined,
-};
+	health: () => ({ status: 200, body: { status: "ok" } }),
+	WidgetTools_list: () => ({ status: 200, body: { items: [widget], total: 1 } }),
+	WidgetTools_read: (_ctx, input) =>
+		input.widgetId === "missing"
+			? { status: 404, body: { code: "missing", message: "No widget has that identifier." } }
+			: { status: 200, body: widget },
+	WidgetTools_create: () => ({ status: 200, body: widget }),
+	WidgetTools_remove: () => ({ status: 204 }),
+} satisfies Tools;
 
 /**
  * Three callers, one deployment.
@@ -62,8 +68,6 @@ const handler = createMcpHandler(
 				),
 			context: () => ({}),
 			noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
-			respond: (_serverContext, declared, result) =>
-				toolResult(declared, statusOf(declared.arms, result), result),
 		};
 
 		const server = new McpServer({ name: "widgets", version: "1.0.0" });

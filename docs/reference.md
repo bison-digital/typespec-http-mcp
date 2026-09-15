@@ -11,20 +11,20 @@ This emitter runs the whole of `typespec-http-zod`, so **every option that libra
 reaches it**, derived from its published schema rather than restated. Those are documented in that
 package; they are listed here because this file is graded as a class.
 
-| option                       | default                | what it does                                                                           |
-| ---------------------------- | ---------------------- | -------------------------------------------------------------------------------------- |
-| `contracts-output-dir`       | unset                  | Forwarded to the library.                                                              |
-| `contracts-package`          | unset                  | Forwarded to the library.                                                              |
-| `seal-object-schemas`        | `false`                | Forwarded to the library. **It also decides the tool surface**: see _Openness_ below.  |
-| `compile-schemas`            | unset                  | Forwarded to the library.                                                              |
-| `key-vocabularies`           | unset                  | Forwarded to the library.                                                              |
-| `runtime-module`             | `./mcp-runtime.gen.js` | Where emitted output imports its runtime contract from.                                |
-| `regenerate-hint`            | unset                  | The command named in the generated banner.                                             |
-| `services`                   | unset                  | Per-service overrides. Every option above may be set per service, plus the four below. |
-| `tool-tags`                  | unset                  | Tags that mark an operation as a tool. **Unset means every operation is one.**         |
-| `exclude-tags`               | `[]`                   | Tags that exclude an operation, even when `tool-tags` selected it.                     |
-| `tool-prefix`                | unset                  | Prepended to every tool name, verbatim.                                                |
-| `services.<name>.emit-tools` | `true`                 | Set `false` for a service that is in the program only for its types.                   |
+| option                       | default | what it does                                                                           |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `contracts-output-dir`       | unset   | Forwarded to the library.                                                              |
+| `contracts-package`          | unset   | Forwarded to the library.                                                              |
+| `seal-object-schemas`        | `false` | Forwarded to the library. **It also decides the tool surface**: see _Openness_ below.  |
+| `compile-schemas`            | unset   | Forwarded to the library.                                                              |
+| `key-vocabularies`           | unset   | Forwarded to the library.                                                              |
+| `runtime-module`             | refused | Refused with `runtime-module-removed`. `mcp-runtime.gen.ts` is always emitted.         |
+| `regenerate-hint`            | unset   | The command named in the generated banner.                                             |
+| `services`                   | unset   | Per-service overrides. Every option above may be set per service, plus the four below. |
+| `tool-tags`                  | unset   | Tags that mark an operation as a tool. **Unset means every operation is one.**         |
+| `exclude-tags`               | `[]`    | Tags that exclude an operation, even when `tool-tags` selected it.                     |
+| `tool-prefix`                | unset   | Prepended to every tool name, verbatim.                                                |
+| `services.<name>.emit-tools` | `true`  | Set `false` for a service that is in the program only for its types.                   |
 
 ### `tool-tags`, and why the default is "everything"
 
@@ -43,11 +43,76 @@ nothing at all.
 
 ### `runtime-module`
 
-Defaults to `./mcp-runtime.gen.js`, **not** `./runtime.gen.js`. If you also emit a server from the
+**Refused with `runtime-module-removed`, an error.** It used to replace `mcp-runtime.gen.ts` with an
+application's own module, which made the application own a copy of arm selection and the tool-result
+rules. The option is still in the schema so that setting it reports what to do instead, rather than
+"must NOT have additional properties". The generated file always imports `./mcp-runtime.gen.js`. See
+[Upgrading](guides.md#upgrading).
+
+The runtime is `mcp-runtime.gen.ts`, **not** `runtime.gen.ts`. If you also emit a server from the
 same spec into the same directory, the two emitters would otherwise both claim `runtime.gen.ts`.
 `emitFile` has no duplicate-path detection, so that is a silent last-writer-wins decided by the order
 of `emit:` in `tspconfig.yaml`. With distinct runtime filenames the only file the two can contest is
-`schemas.gen.ts`, which is byte-identical under identical options.
+`schemas.gen.ts`, which imports no runtime and is byte-identical under identical options.
+
+## What a tool answers
+
+A handler returns `{ status, body, headers }` for a response the document declares, and the
+generated callback hands it to `toolResult`:
+
+| the result                                               | the tool result                                                                                      |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| a status no declared response governs                    | throws `UndeclaredStatusError`                                                                       |
+| a media type the status does not offer                   | throws `UndeclaredStatusError`; a range such as `image/*` admits its types                           |
+| a JSON body its status's schema refuses                  | throws `ResponseContractError`, with Zod's issues                                                    |
+| a JSON body its status's schema accepts                  | the PARSED body, as a `text` block of JSON                                                           |
+| a string body under a media type that is not JSON        | parsed against its schema, and the parsed string as a `text` block                                   |
+| bytes under an `image/*` media type                      | an `image` block: `{ type: "image", data: <base64>, mimeType }`                                      |
+| bytes under an `audio/*` media type                      | an `audio` block: `{ type: "audio", data: <base64>, mimeType }`                                      |
+| a model under a media type that is not JSON              | the text the handler supplied, unvalidated; anything but a string throws                             |
+| a response with no body                                  | `content: []`                                                                                        |
+| a 4xx or 5xx status                                      | `isError: true`                                                                                      |
+| a body whose schema is the `outputSchema`                | the parsed body as `structuredContent` too                                                           |
+| a 2xx or 3xx through another arm, with an `outputSchema` | checked against the `outputSchema`: `structuredContent` if it passes, `ResponseContractError` if not |
+| declared response headers                                | `_meta["typespec-http-mcp/response-headers"]`, keyed by wire name                                    |
+
+A binary body may be a `Uint8Array`, an `ArrayBuffer` or a `ReadableStream`; a stream is read to its
+end, because a tool result is one message. `mimeType` is the media type served: the handler's
+`contentType` where the status offers several or a range, otherwise the one it offers.
+
+The runtime cannot tell a string, bytes and a serialised model apart from an arm, so the generated
+call passes `bodies` beside the arms, keyed by status, only for the statuses that answer text or
+bytes: `{ arms: pictureResponses, outputSchema: undefined, bodies: { "200": "binary" } }`.
+
+A thrown error reaches the SDK, which answers the call as a tool-execution error carrying its message.
+
+**`outputSchema` is the body of the lowest exact 2xx or 3xx status, published only where every 2xx
+and 3xx response the operation declares answers with that same body, as JSON.** The SDK refuses a
+result that is not an error and carries no `structuredContent` once a tool declares an
+`outputSchema`: the server answers "Output validation error", and `@modelcontextprotocol/client`
+throws. An operation answering `201` with one body and `200` with another, or `204` with none,
+therefore publishes no `outputSchema`, and every one of its successes reaches the caller as text.
+
+A `default` response is not a success the document names, so it does not stop the common
+`Widget | Problem` shape publishing its schema. It does govern the 2xx and 3xx statuses nobody
+listed, so a success answered through it must meet the published schema as well as its own: the
+handler's body is checked against the `outputSchema`, and a body that fails is a
+`ResponseContractError` naming the operation rather than the SDK's "no structured content".
+
+## What cannot be a tool
+
+An operation is refused, and left out of `Tools` and `TOOL_NAMES`, when the document declares
+something a tool call cannot carry. The operation is still in the sibling server's `Operations`, so
+one handler object serves both: `registerTools` accepts a handler for any operation the document
+declares.
+
+| the document declares                                             | refusal                |
+| ----------------------------------------------------------------- | ---------------------- |
+| a raw or multipart request body                                   | `binary-tool-input`    |
+| only request media types that are not JSON                        | `non-json-request`     |
+| a request body with no properties to merge into arguments         | `non-object-body`      |
+| a streamed response: server-sent events, JSONL                    | `streamed-tool-output` |
+| a binary response under a type that is not `image/*` or `audio/*` | `binary-tool-output`   |
 
 ## Openness: what a tool advertises about unknown arguments
 
@@ -77,15 +142,16 @@ this emitter mounts no validation of its own.
 **A validation failure therefore does not wear your envelope.** Measured against
 `@modelcontextprotocol/server@2.0.0`: an argument of the wrong type produces HTTP 200 with
 `isError: true` and the SDK's own message, and the callback never runs -- it is _not_ a JSON-RPC
-`-32602` protocol error. Every declared 4xx from your own handler goes through your `respond` and
-looks the way you decided; a bad argument does not. That asymmetry is stated here rather than left to
-be discovered.
+`-32602` protocol error. Every declared 4xx your handler returns carries that status's own body, as
+the document declares it; a bad argument carries the SDK's message instead. That asymmetry is stated
+here rather than left to be discovered.
 
 ## Diagnostics
 
-**All warnings, never errors.** A TypeSpec `error` sets `program.hasError()` and `@typespec/openapi3`
-then writes nothing, so an error here would cost you the whole document over one operation this
-emitter happens not to be able to express.
+**Every diagnostic about the document is a warning, never errors.** A TypeSpec `error` sets `program.hasError()`
+and `@typespec/openapi3` then writes nothing, so an error here would cost you the whole document over
+one operation this emitter happens not to be able to express. The one error is about configuration,
+`runtime-module-removed`, where a warning would let a setting be silently ignored.
 
 Every one is targeted at the operation by **verb and path**, never by name: matching by name never
 succeeds for an operation declared inside an `interface`.
@@ -119,15 +185,19 @@ duplicate-path detection, so that is a silent last-writer-wins and **the order o
 exit 0 and no diagnostic either time.
 
 Fires **only when the resolved library options differ**. Sharing one directory with matching options
-is silent, and is the arrangement worth having: it is what makes one `Ctx`, one `Result` and one set
-of validators serve both surfaces.
+is silent, and is the arrangement worth having: it is what makes one set of validators serve both
+surfaces.
+
+The other emitter is counted as running the library when the option schema it publishes accepts
+every one of the library's options, whatever it was configured with. An emitter left on its defaults
+beside one that sets `compile-schemas` is the case that matters most, and it sets none of them.
 
 With nothing configured this cannot happen at all -- each emitter defaults to a directory named
 after itself.
 
-Remedy: give each emitter its own `emitter-output-dir`, or set the same `runtime-module`,
-`seal-object-schemas`, `compile-schemas`, `contracts-package`, `contracts-output-dir`,
-`key-vocabularies` and `regenerate-hint` on both.
+Remedy: give each emitter its own `emitter-output-dir`, or set the same `seal-object-schemas`,
+`compile-schemas`, `contracts-package`, `contracts-output-dir`, `key-vocabularies` and
+`regenerate-hint` on both.
 
 ### `binary-tool-input`
 
@@ -139,6 +209,44 @@ context window.
 
 Remedy: exclude the operation with `exclude-tags`, or declare a JSON-bodied operation for the tool
 surface.
+
+### `binary-tool-output`
+
+A response body is raw bytes under a media type MCP has no content block for, such as
+`application/octet-stream` or `application/pdf`. A tool result is `text`, `image` and `audio` blocks,
+and structured content.
+
+**Refused rather than approximated.** Bytes of any other type could only be an embedded resource, and
+a resource needs a URI the document never states. Base64 in a text block would publish an encoding no
+reader of the document could predict, and would push a whole download through a model's context
+window. Refused where ANY declared response offers such a type, because a handler may answer with any
+of them: `image/png | application/octet-stream` is refused.
+
+Remedy: exclude the operation with `exclude-tags`, or declare an `image/*` or `audio/*` media type, or
+a JSON body, for the tool surface.
+
+### `streamed-tool-output`
+
+A response is a stream, `SSEStream<...>` or `JsonlStream<...>`. A tool call answers with one message,
+and a stream is unbounded and arrives over time.
+
+**Refused rather than approximated.** Buffering it waits on a stream that may never end, and
+answering its first event would publish a contract no reader of the document could predict.
+
+Remedy: exclude the operation with `exclude-tags`, or declare an operation that answers once for the
+tool surface.
+
+### `unvalidated-response-media-type`
+
+A response declares a model under a media type that is not JSON, most commonly `application/xml`. No
+serialisation derives from the schema, so the handler returns that body as a string and the tool
+answers it as a `text` block without validating it. Every other response on the operation is
+validated as usual.
+
+**A warning, not a refusal**: the text is a tool result, only an unchecked one. The same code, with
+the same trigger, as `typespec-hono` raises for the same response.
+
+Remedy: declare a JSON media type, or a string body, to have it checked.
 
 ### `non-object-body`
 
@@ -165,8 +273,8 @@ Remedy: declare `application/json` alongside them.
 
 ### `headers-only-success`
 
-The success response carries headers and no body, so the tool returns nothing a model can read:
-response headers are carried in `_meta`, which a model does not see.
+A 2xx or 3xx response, exact or ranged, carries headers and no body, so the tool answers that status
+with nothing a model can read: response headers are carried in `_meta`, which a model does not see.
 
 **Not a refusal** -- the tool is still emitted, because the operation is callable and its effect may
 be the point.
@@ -181,6 +289,18 @@ Fires only for operations that became tools: an opinion about an operation that 
 this emitter's business.
 
 Remedy: add a doc comment, or `@summary`.
+
+### `runtime-module-removed`
+
+`runtime-module` is set, at the top level or for a service. **An error**, because the option's value
+is ignored: `mcp-runtime.gen.ts` is emitted and the generated file imports it, and an emitter that
+silently ignored a setting would produce output its author did not ask for.
+
+The option made an application own a copy of generated logic. Nothing it was for needs it now: the
+caller context is inferred from `deps.context`, and a handler returns `{ status, body, headers }` for
+any response the document declares.
+
+Remedy: remove the option and delete the module it pointed at. See [Upgrading](guides.md#upgrading).
 
 ### `tool-name-collision`
 

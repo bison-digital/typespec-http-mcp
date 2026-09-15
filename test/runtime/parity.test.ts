@@ -1,19 +1,22 @@
-import { armFor as libraryArmFor } from "typespec-http-zod/runtime";
-import { describe, expect, it } from "vitest";
-import { z } from "zod";
+import {
+	armFor as libraryArmFor,
+	type ResponseArm as LibraryResponseArm,
+} from "typespec-http-zod/runtime";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { z, type ZodType } from "zod";
 import { armFor, type ResponseArm } from "../../src/runtime.js";
 
 /**
  * **This package declares its own `ResponseArm` and `armFor`, and that is a deliberate second
  * implementation of one rule.**
  *
- * It cannot import the library's: the emitted `schemas.gen.ts` imports `ResponseArm` from whatever
- * `runtime-module` names, and emitted output must never import this emitter or the library it runs,
+ * It cannot import the library's: the runtime is copied into the consumer's output as
+ * `mcp-runtime.gen.ts`, and emitted output must never import this emitter or the library it runs,
  * because a consumer installs both as devDependencies. So the duplication is forced.
  *
  * What is not forced is letting the two drift. This grades mine against the library's own for every
  * arm shape and every status class -- exact code, range, catch-all, and the orders in which they can
- * be declared.
+ * be declared -- and holds the two declarations to one type.
  */
 
 const schema = z.object({ ok: z.boolean() });
@@ -54,6 +57,36 @@ const ARM_SETS: readonly (readonly ResponseArm[])[] = [
 
 const STATUSES = [200, 201, 204, 301, 400, 401, 404, 409, 418, 422, 500, 502, 599];
 
+/**
+ * The library's view of an arm set, for the comparison below.
+ *
+ * **`schema` is dropped, and nothing the comparison grades is lost with it.** `armFor` reads only
+ * `status`, and the comparison is of the status each implementation resolves to. The schema cannot be
+ * handed over as it is where the library is linked from a sibling checkout: that checkout resolves its
+ * own copy of Zod, and two copies' `ZodType`s are different types to the compiler. An installed
+ * package shares the consumer's, through its peer dependency.
+ */
+function libraryArms(arms: readonly ResponseArm[]): Parameters<typeof libraryArmFor>[0] {
+	return arms.map(({ schema: _schema, ...rest }) => ({ ...rest, schema: undefined }));
+}
+
+describe("the arm is the library's arm", () => {
+	/**
+	 * **The same TYPE, not merely a compatible one.** The emitted `schemas.gen.ts` annotates its arm
+	 * lists with the library's shape and `toolResult` reads them through this one, so a field one side
+	 * gained and the other did not would be an arm this runtime silently ignores.
+	 *
+	 * Every field but `schema` is compared directly. `schema` is typed by each package's own Zod, which
+	 * is one copy in an install and two in a linked checkout (see `libraryArms`), so it is compared to
+	 * the Zod this package resolves instead.
+	 */
+	it("declares exactly the library's ResponseArm", () => {
+		expectTypeOf<Omit<ResponseArm, "schema">>().toEqualTypeOf<Omit<LibraryResponseArm, "schema">>();
+		expectTypeOf<ResponseArm["schema"]>().toEqualTypeOf<ZodType | undefined>();
+		expectTypeOf<keyof ResponseArm>().toEqualTypeOf<keyof LibraryResponseArm>();
+	});
+});
+
 describe("armFor answers exactly as the library's own does", () => {
 	it("agrees on every arm set and every status", () => {
 		const disagreements: string[] = [];
@@ -62,7 +95,7 @@ describe("armFor answers exactly as the library's own does", () => {
 			for (const status of STATUSES) {
 				compared += 1;
 				const mine = armFor(arms, status);
-				const theirs = libraryArmFor(arms, status);
+				const theirs = libraryArmFor(libraryArms(arms), status);
 				if (mine?.status !== theirs?.status) {
 					disagreements.push(
 						`${JSON.stringify(arms.map((a) => a.status))} @ ${status}: ` +

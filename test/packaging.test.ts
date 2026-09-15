@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { workingTreeFiles } from "./support/working-tree.js";
 import { compileEmittedSet } from "./support/emitted-set.js";
 
 /**
@@ -53,9 +53,7 @@ beforeAll(async () => {
 }, 900_000);
 
 describe("the package declares what it needs to run outside this checkout", () => {
-	const sources = execFileSync("git", ["ls-files", "src"], { cwd: packageRoot, encoding: "utf8" })
-		.split("\n")
-		.filter((name) => name.endsWith(".ts"));
+	const sources = workingTreeFiles(packageRoot, "src").filter((name) => name.endsWith(".ts"));
 
 	it("has source to inspect at all", () => {
 		expect(sources.length).toBeGreaterThanOrEqual(4);

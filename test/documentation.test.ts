@@ -111,6 +111,20 @@ describe("the reference documents every diagnostic", () => {
 		expect(reference).toContain("never errors");
 		expect(reference).toContain("hasError");
 	});
+
+	/**
+	 * **And it is true of `$lib`, not only of the prose.** The one error is about configuration: a
+	 * `runtime-module` the emitter ignores, where a warning would let a setting be silently dropped.
+	 */
+	it("declares every diagnostic a warning, but the one about an ignored option", () => {
+		const severities = Object.fromEntries(
+			Object.entries($lib.diagnostics).map(([code, definition]) => [code, definition.severity]),
+		);
+		const errors = Object.entries(severities).filter(([, severity]) => severity !== "warning");
+		expect(errors).toEqual([["runtime-module-removed", "error"]]);
+		expect(Object.keys(severities).length).toBeGreaterThanOrEqual(10);
+		expect(reference).toContain("The one error is about configuration");
+	});
 });
 
 describe("the documentation set holds together", () => {

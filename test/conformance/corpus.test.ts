@@ -40,11 +40,14 @@ const LIBRARY_REFUSES: Readonly<Record<string, string>> = {
  * only asks whether a file was written, and a file is written either way. Named rather than
  * tolerated, so a third one is a change somebody explains.
  *
- * Both are correct. A multipart body cannot be a tool argument, and `@body body: string` is not an
- * object, so neither can be merged into an argument schema that MCP will accept.
+ * All are correct. A multipart body cannot be a tool argument, and `@body body: string` is not an
+ * object, so neither can be merged into an argument schema that MCP will accept. Every operation in
+ * the two streaming scenarios answers with a stream, and a tool result is one message.
  */
 const EMITTER_REFUSES_EVERY_OPERATION: Readonly<Record<string, string>> = {
 	payload__multipart: "typespec-http-mcp/binary-tool-input",
+	streaming__jsonl: "typespec-http-mcp/streamed-tool-output",
+	streaming__sse: "typespec-http-mcp/streamed-tool-output",
 	versioning__returnTypeChangedFrom: "typespec-http-mcp/non-object-body",
 };
 

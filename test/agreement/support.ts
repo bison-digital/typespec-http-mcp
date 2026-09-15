@@ -1,10 +1,10 @@
 import { rmSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile, NodeHost } from "@typespec/compiler";
 
 /**
- * Compile one spec through BOTH emitters, into ONE directory, with ONE runtime module.
+ * Compile one spec through BOTH emitters, into ONE directory, each with the runtime it emits.
  *
  * **One program, not two.** Two compiles would compare artefacts from two separately resolved
  * programs, and any disagreement would be ambiguous between "the emitters disagree" and "the
@@ -13,6 +13,11 @@ import { compile, NodeHost } from "@typespec/compiler";
  * Both emitters run `typespec-http-zod`, so both write `schemas.gen.ts`. With identical options that
  * is byte-identical content and harmless -- which is exactly the arrangement this arm needs, and the
  * one a consumer wanting both surfaces will have.
+ *
+ * **No `runtime-module`, and no substituted runtime.** The shared file used to import its arm type
+ * from a runtime both emitters had to be pointed at; it now declares that type itself, so the two
+ * emitters' own runtimes (`runtime.gen.ts`, `mcp-runtime.gen.ts`) sit side by side and nothing is
+ * contested but `schemas.gen.ts`.
  */
 export async function compileBothSurfaces(outName: string): Promise<{
 	readonly outDir: string;
@@ -22,14 +27,7 @@ export async function compileBothSurfaces(outName: string): Promise<{
 	const outDir = join(here, ".out", outName);
 	rmSync(outDir, { recursive: true, force: true });
 
-	const runtime = join(here, "runtime.ts");
-	const specifier = relative(outDir, runtime).replaceAll("\\", "/").replace(/\.ts$/, ".js");
-	const runtimeModule = specifier.startsWith(".") ? specifier : `./${specifier}`;
-
-	const shared = {
-		"emitter-output-dir": outDir,
-		"runtime-module": runtimeModule,
-	};
+	const shared = { "emitter-output-dir": outDir };
 
 	const program = await compile(NodeHost, join(here, "service.tsp"), {
 		outputDir: outDir,

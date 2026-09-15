@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { workingTreeFiles } from "./support/working-tree.js";
 
 /**
  * **This package is published open source and may name no private codebase, anywhere.**
@@ -106,8 +106,7 @@ function isReserved(host: string): boolean {
 
 /** Every file git tracks: source, tests, docs, workflows, manifests. Not just `src/`. */
 function trackedFiles(): string[] {
-	const out = execFileSync("git", ["ls-files"], { cwd: packageRoot, encoding: "utf8" });
-	return out.split("\n").filter((line) => line.trim() !== "");
+	return workingTreeFiles(packageRoot);
 }
 
 const TEXT = /\.(ts|tsp|md|json|jsonc|ya?ml|txt)$/;

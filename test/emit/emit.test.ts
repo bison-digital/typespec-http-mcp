@@ -18,7 +18,6 @@ const reference = join(packageRoot, "test", "reference");
 describe("the emitted tool surface compiles", () => {
 	it("typechecks under strict, exactOptionalPropertyTypes and types: []", async () => {
 		const { outDir, diagnostics } = await compileFixture(reference, "service", {
-			bare: true,
 			outName: "emit-reference",
 		});
 		expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -29,7 +28,6 @@ describe("the emitted tool surface compiles", () => {
 
 	it("typechecks with seal-object-schemas, which changes every emitted object", async () => {
 		const { outDir } = await compileFixture(reference, "service", {
-			bare: true,
 			outName: "emit-sealed",
 			extraOptions: { "seal-object-schemas": true },
 		});

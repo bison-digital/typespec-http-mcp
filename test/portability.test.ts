@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { workingTreeFiles } from "./support/working-tree.js";
 import { compileEmittedSet } from "./support/emitted-set.js";
 
 /**
@@ -9,7 +9,7 @@ import { compileEmittedSet } from "./support/emitted-set.js";
  *
  * **The emitted output is the half that matters, and no other arm reads it for this.** A generated
  * file carrying `/Users/somebody/projects/...` compiles for the person who ran the emitter and for
- * nobody else -- and generated output is committed by the consumer. `runtime-module` takes a
+ * nobody else -- and generated output is committed by the consumer. `contracts-package` takes a
  * specifier that lands verbatim in the output, so an absolute one is a single mis-set option away.
  *
  * **This is a companion to "every import resolves", not a subset of it.** An absolute specifier
@@ -54,9 +54,7 @@ beforeAll(async () => {
 }, 900_000);
 
 describe("nothing this package ships names one machine's filesystem", () => {
-	const tracked = execFileSync("git", ["ls-files"], { cwd: packageRoot, encoding: "utf8" })
-		.split("\n")
-		.filter((name) => name !== "");
+	const tracked = workingTreeFiles(packageRoot);
 
 	it("has files to inspect at all", () => {
 		expect(tracked.length).toBeGreaterThanOrEqual(15);

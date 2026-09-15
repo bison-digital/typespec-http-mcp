@@ -44,7 +44,7 @@ let emitted = "";
 let golden = new Map<string, string>();
 
 beforeAll(async () => {
-	const { outDir } = await compileFixture(reference, "service", { bare: true, outName: "golden" });
+	const { outDir } = await compileFixture(reference, "service", { outName: "golden" });
 	emitted = readFileSync(join(outDir, "mcp.gen.ts"), "utf8");
 	golden = sdkExamples();
 }, 300_000);
@@ -103,15 +103,16 @@ describe("the emitted call site has the shape the SDK recommends", () => {
 		expect(example).toContain("content: [{ type: 'text'");
 		expect(example).toContain("structuredContent");
 		/**
-		 * The emitted callback delegates to `deps.respond`, because the result envelope is the
-		 * application's. What produces the SDK's shape is `toolResult` in the runtime, which
-		 * `test/runtime/result.test.ts` grades against the SDK's own result schema.
+		 * The emitted callback returns `toolResult(...)` over the handler's result. What produces the
+		 * SDK's shape is `toolResult` in the runtime, which `test/runtime/result.test.ts` grades against
+		 * the SDK's own result schema.
 		 */
+		expect(emitted).toMatch(/return toolResult\(\n\t+\{ arms: \w+, outputSchema: \w+ \},/);
 		const runtime = readFileSync(join(packageRoot, "src", "runtime.ts"), "utf8");
 		expect(runtime).toContain(
-			'content: hasBody ? [{ type: "text", text: JSON.stringify(body) }] : []',
+			'toolAnswer.content = [{ type: "text", text: JSON.stringify(parsed.data) }];',
 		);
-		expect(runtime).toContain("result.structuredContent = body");
+		expect(runtime).toContain("toolAnswer.structuredContent = parsed.data;");
 	});
 
 	it("constructs the server the way the SDK's example does, in the docs a consumer copies", () => {

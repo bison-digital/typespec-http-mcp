@@ -1,3 +1,15 @@
+# **`overrides` lives HERE, not in `package.json`.** pnpm 11 no longer reads `pnpm.overrides` from
+# the manifest and only warns, so a block written there is silently ignored while the install looks
+# correct.
+#
+# Both siblings are linked while their per-status response records and returned handler results are
+# unreleased: this package's tool signatures have to be identical to the server emitter's, and the
+# agreement arm compiles one handler object against both. The release that moves these ranges to the
+# published packages removes the block.
+overrides:
+  typespec-http-zod: "link:../typespec-http-zod"
+  typespec-hono: "link:../typespec-hono"
+
 minimumReleaseAgeExclude:
   - typespec-http-zod@0.24.0 || 0.25.0
   - zod@4.5.2

@@ -1,6 +1,10 @@
 import "@typespec/http";
+import "@typespec/sse";
+import "@typespec/events";
 
 using Http;
+using Events;
+using SSE;
 
 /** One operation per refusal, plus one per quality warning, plus a control that is clean. */
 @service(#{ title: "Refusals" })
@@ -48,6 +52,57 @@ op ping(): {
 @route("/quiet")
 @get
 op quiet(): Item;
+
+/** Raw bytes no MCP content block carries: an octet stream would need a resource URI. */
+@route("/download")
+@get
+op downloadBytes(): {
+  @header contentType: "application/octet-stream";
+  @body body: bytes;
+};
+
+/** Raw bytes offered as an image AND as an octet stream: refused, because either may be answered. */
+@route("/download-either")
+@get
+op downloadEither(): {
+  @header contentType: "image/png" | "application/octet-stream";
+  @body body: bytes;
+};
+
+@events
+union ItemEvents {
+  @Events.contentType("application/json")
+  Item,
+}
+
+/** A stream of events: a tool result is one message. */
+@route("/events")
+@get
+op itemEvents(): SSEStream<ItemEvents>;
+
+/** Bytes as an image: answered as an MCP image block, so NOT refused. */
+@route("/thumbnail")
+@get
+op thumbnail(): {
+  @header contentType: "image/png";
+  @body body: bytes;
+};
+
+/** A string as text: validated and answered as a text block, so neither refused nor warned about. */
+@route("/note")
+@get
+op note(): {
+  @header contentType: "text/plain";
+  @body body: string;
+};
+
+/** A model as XML: nothing serialises it, so the handler supplies the text, unvalidated. */
+@route("/item-xml")
+@get
+op itemXml(): {
+  @header contentType: "application/xml";
+  @body body: Item;
+};
 
 /** An ordinary JSON operation, so the arms below are not measuring an empty surface. */
 @route("/items")

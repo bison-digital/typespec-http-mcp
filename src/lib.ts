@@ -20,8 +20,15 @@ import {
  * reach it. Written as a second literal list, an option added there would be rejected here as
  * unknown, or worse, accepted and silently dropped -- output that is wrong in a way no test of
  * either package would see. `test/options.test.ts` asserts the forwarding as a CLASS.
+ *
+ * **`runtime-module` is declared here only to be REFUSED** (`runtime-module-removed`). The library no
+ * longer has the option, and a schema without the key would report only "must NOT have additional
+ * properties", which tells a consumer upgrading from a version that documented the option neither why
+ * nor what to do instead.
  */
 export type EmitterOptions = HttpZodOptions & {
+	/** Refused. See `runtime-module-removed`. */
+	"runtime-module"?: string;
 	/**
 	 * Tags that mark an operation as a tool. Unset means every operation is one.
 	 *
@@ -55,6 +62,8 @@ export type EmitterOptions = HttpZodOptions & {
 			"tool-tags"?: string[];
 			"exclude-tags"?: string[];
 			"tool-prefix"?: string;
+			/** Refused. See `runtime-module-removed`. */
+			"runtime-module"?: string;
 		}
 	>;
 };
@@ -89,6 +98,8 @@ const EmitterOptionsSchema = {
 	properties: {
 		...httpZodObject.properties,
 		...toolSelection,
+		// Accepted by the schema so that setting it reaches `runtime-module-removed`.
+		"runtime-module": { type: "string", nullable: true },
 		/**
 		 * **Spread from the library's own entry rather than restated**, so a per-service option added
 		 * there still validates here.
@@ -106,6 +117,7 @@ const EmitterOptionsSchema = {
 					).services.additionalProperties.properties,
 					...toolSelection,
 					"emit-tools": { type: "boolean", nullable: true },
+					"runtime-module": { type: "string", nullable: true },
 				},
 				required: [],
 			},
@@ -138,9 +150,10 @@ const EmitterOptionsSchema = {
  * TOOL can express. Two different questions, and keeping them in separate libraries is what stops a
  * consumer who wants validators without a tool surface inheriting a refusal about tools.
  *
- * **All warnings, never errors.** A TypeSpec `error` sets `program.hasError()`, and
+ * **Warnings about the document, never errors.** A TypeSpec `error` sets `program.hasError()`, and
  * `@typespec/openapi3` then writes nothing -- so an error here would cost the consumer their whole
- * document over one operation this emitter happens not to like.
+ * document over one operation this emitter happens not to like. The one error is about the
+ * CONFIGURATION, `runtime-module-removed`, where a warning would let a setting be silently ignored.
  */
 const diagnostics = {
 	/**
@@ -173,8 +186,7 @@ const diagnostics = {
 	 * Another emitter writes where this one writes, with options that disagree.
 	 *
 	 * Fires only when the resolved LIBRARY options differ. Sharing a directory with matching options
-	 * is the arrangement that makes one `Ctx`, one `Result` and one set of validators serve both
-	 * surfaces, and it is silent.
+	 * is the arrangement that makes one set of validators serve both surfaces, and it is silent.
 	 */
 	"shared-output-dir": {
 		severity: "warning",
@@ -195,6 +207,49 @@ const diagnostics = {
 		severity: "warning",
 		messages: {
 			default: paramMessage`'${"operationId"}' takes a binary or multipart request body (${"types"}), which an MCP tool argument cannot carry: tool arguments are JSON. Exclude it with 'exclude-tags', or declare a JSON-bodied operation for the tool surface.`,
+		},
+	},
+	/**
+	 * A response body an MCP tool result cannot carry, because it is raw bytes with no content block.
+	 *
+	 * A tool result is content blocks. MCP has an `image` and an `audio` block, each carrying base64
+	 * data and its media type, and those are what an `image/*` or `audio/*` body becomes. Any other
+	 * binary body -- `application/octet-stream`, a PDF -- could only be an embedded resource, and a
+	 * resource needs a URI the document never states. **Refused rather than approximated**: base64 in
+	 * a text block would publish an encoding no reader of the document could predict, and would put a
+	 * whole download through a model's context window.
+	 */
+	"binary-tool-output": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers with a binary body (${"types"}) that no MCP content block carries: a tool result is text, JSON, an 'image/*' block or an 'audio/*' block. Exclude it with 'exclude-tags', or declare an image or audio media type, or a JSON body, for the tool surface.`,
+		},
+	},
+	/**
+	 * A streamed response, which a tool result cannot be.
+	 *
+	 * An SSE or JSONL response is unbounded and arrives over time; a tool call answers with one message.
+	 * Buffering waits on a stream that may never end, and answering the first event would publish a
+	 * contract no reader of the document could predict.
+	 */
+	"streamed-tool-output": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers with a stream (${"types"}), and an MCP tool result is one message. Exclude it with 'exclude-tags', or declare an operation that answers once for the tool surface.`,
+		},
+	},
+	/**
+	 * A response the handler supplies as text, answered without being checked against its schema.
+	 *
+	 * A model declared under a media type that is not JSON -- an `Item` as `application/xml` -- has no
+	 * serialisation this emitter can derive from the document, so the handler returns the text and the
+	 * tool answers it as is. The same code, and the same trigger, as the sibling server emitter's, so a
+	 * project emitting both surfaces reads one warning about one response.
+	 */
+	"unvalidated-response-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text and the tool answers it without validating it. Declare a JSON media type, or a string body, to have it checked.`,
 		},
 	},
 	/**
@@ -234,6 +289,25 @@ const diagnostics = {
 		severity: "warning",
 		messages: {
 			default: paramMessage`'${"operationId"}' answers with response headers and no body, so its tool returns nothing a model can read: headers are carried in '_meta', which a model does not see. Declare the value in the response body.`,
+		},
+	},
+	/**
+	 * `runtime-module` is set, and this emitter no longer substitutes its runtime.
+	 *
+	 * **The option made an application OWN a copy of generated logic**, because the generated tools
+	 * imported the application's `Ctx` and `Result` from the same module as arm selection and the
+	 * tool-result rules. So every consumer that needed its own caller context or result shape copied
+	 * those too, and a copy ages with every release it is not updated for.
+	 *
+	 * Nothing the option was for needs it now. The caller context is inferred from `deps.context`, and
+	 * what a handler returns is the union of the responses the document declares. **An error rather
+	 * than a warning**, because the option's value is ignored, and an emitter that silently ignores a
+	 * setting produces output its author did not ask for.
+	 */
+	"runtime-module-removed": {
+		severity: "error",
+		messages: {
+			default: paramMessage`'runtime-module' is set to '${"value"}', and typespec-http-mcp no longer substitutes its runtime: 'mcp-runtime.gen.ts' is always emitted. Remove the option and delete the module it pointed at. The caller context is inferred from 'deps.context', and a handler returns '{ status, body, headers }' for any response the document declares. See the Upgrading section of docs/guides.md.`,
 		},
 	},
 	/**
@@ -284,9 +358,15 @@ type Diagnostics = {
 	"binary-tool-input": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-object-body": { readonly default: CallableMessage<["operationId", "types"]> };
+	"binary-tool-output": { readonly default: CallableMessage<["operationId", "types"]> };
+	"streamed-tool-output": { readonly default: CallableMessage<["operationId", "types"]> };
+	"unvalidated-response-media-type": {
+		readonly default: CallableMessage<["operationId", "status", "types"]>;
+	};
 	"headers-only-success": { readonly default: CallableMessage<["operationId"]> };
 	"tool-without-description": { readonly default: CallableMessage<["operationId"]> };
 	"shared-output-dir": { readonly default: CallableMessage<["emitter", "differing"]> };
+	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
 };
 
 /**

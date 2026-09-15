@@ -28,9 +28,9 @@ The generated file is **never edited, only called**. You own the `McpServer`, th
 authentication in front of it:
 
 ```ts
-import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
 import { registerTools } from "./generated/mcp.gen.js";
-import { toolResult, statusOf, type ToolDeps } from "./generated/mcp-runtime.gen.js";
+import type { ToolDeps } from "./generated/mcp-runtime.gen.js";
 import { handlers } from "./handlers.js"; // the same object your HTTP server gets
 
 /**
@@ -41,7 +41,7 @@ import { handlers } from "./handlers.js"; // the same object your HTTP server ge
 const handler = createMcpHandler((context) => {
 	const scopes = context.authInfo?.scopes ?? [];
 
-	const deps: ToolDeps = {
+	const deps: ToolDeps<AuthInfo> = {
 		permits: (requirements) =>
 			requirements.length === 0 ||
 			requirements.some((requirement) =>
@@ -51,8 +51,6 @@ const handler = createMcpHandler((context) => {
 			),
 		context: (serverContext) => serverContext.http?.authInfo ?? null,
 		noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
-		respond: (_serverContext, declared, result) =>
-			toolResult(declared, statusOf(declared.arms, result), result),
 	};
 
 	const server = new McpServer({ name: "widgets", version: "1.0.0" });
@@ -71,12 +69,40 @@ export default {
 returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
 `TypeError: handler is not a function`.
 
-`createMcpHandler` returns an object with a `fetch` method -- **not a callable**. Calling the
-returned value directly is the shape of Cloudflare's `agents` wrapper, not of this SDK, and gives
-`TypeError: handler is not a function`.
+## What a handler returns
 
-Write the handler factory **unannotated**. Annotating it widens the value and disables the check that
-refuses a handler for an operation the spec no longer declares.
+A handler returns `{ status, body, headers }` for any response the document declares, failures
+included:
+
+```ts
+import type { AuthInfo } from "@modelcontextprotocol/server";
+import type { Tools } from "./generated/mcp.gen.js";
+
+export const handlers = {
+	WidgetTools_read: (caller, input) => {
+		const widget = widgets.get(input.widgetId);
+		return widget === undefined
+			? { status: 404, body: { resource: input.widgetId } }
+			: { status: 200, body: widget };
+	},
+} satisfies Tools<AuthInfo>;
+```
+
+`caller` has the type `deps.context` returns, which `registerTools` infers; nothing declares it.
+`satisfies` keeps each `status` a literal, which is what selects the response
+it belongs to. **It is not an annotation**: annotating the object widens it, and the check that
+refuses a handler for an operation the spec no longer declares stops working. Where the same object
+also serves a generated HTTP server, write `satisfies Operations<Caller>` from that server's file
+instead, because a tool set may be a subset of the operations.
+
+What the model receives follows from the document:
+
+- a 4xx or 5xx is a tool-execution error, `isError: true`, whose text is that status's own body;
+- a JSON body is parsed against the schema its status publishes, and the parsed value is what is
+  sent. A body that does not match throws `ResponseContractError`, and a status the operation does
+  not declare throws `UndeclaredStatusError`;
+- `structuredContent` carries the body when its schema is the tool's `outputSchema`;
+- response headers are carried in `_meta["typespec-http-mcp/response-headers"]`, keyed by wire name.
 
 ## What is derived, and from what
 
@@ -89,7 +115,7 @@ a published specification:
 | `title`                      | `@summary`                                           |
 | `description`                | `@doc`                                               |
 | `inputSchema`                | the emitted Zod schema, **input** projection         |
-| `outputSchema`               | the success response body                            |
+| `outputSchema`               | the body every 2xx and 3xx status shares             |
 | `annotations.readOnlyHint`   | the method's safety, per IANA's HTTP Method Registry |
 | `annotations.idempotentHint` | the method's idempotence, same source                |
 | which operations are tools   | `@tag`, which `@typespec/openapi3` publishes         |
