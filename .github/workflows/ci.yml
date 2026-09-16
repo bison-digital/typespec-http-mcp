@@ -20,64 +20,28 @@ jobs:
         node: [22, 24]
     steps:
       - uses: actions/checkout@v7
-        with:
-          path: typespec-http-mcp
 
-      # **Both siblings are checked out while `pnpm-workspace.yaml` links them**, which it does while a
-      # change spanning the three packages is unreleased: this package's tool signatures have to be
-      # identical to the server emitter's, and the agreement arm compiles one handler object against
-      # both. A link needs a target, and installing the published versions instead would test a
-      # pairing the commit was not written against.
-      #
-      # It goes again, with the override, in the release that moves the ranges to the published
-      # packages: `release.yml` refuses to publish while the override is present. Every checkout needs
-      # `path:`, so there is no `package.json` at the workspace root and `pnpm/action-setup` has to be
-      # pointed at one - without that it fails with "No pnpm version is specified", naming a field that
-      # is present and correct.
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/typespec-http-zod
-          path: typespec-http-zod
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/typespec-hono
-          path: typespec-hono
+      # **Both packages are resolved from the registry, exactly as a consumer resolves them.** While
+      # they were unpublished, `pnpm-workspace.yaml` linked them and this job checked both siblings out
+      # beside this one to give the links a target. All of that went with the release that published
+      # them: a change spanning the three packages is again verifiable only by releasing in order,
+      # which `docs/releasing.md` is about.
+
       - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: typespec-http-mcp/package.json
 
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-          cache-dependency-path: typespec-http-mcp/pnpm-lock.yaml
-
-      # Installed and BUILT in dependency order: each resolves the one before it through a link, and
-      # their `exports` point at `dist/`, which a fresh checkout does not have. The server emitter links
-      # the library the same way, so it needs the library built first too.
-      - run: pnpm install --frozen-lockfile
-        working-directory: typespec-http-zod
-      - run: pnpm build
-        working-directory: typespec-http-zod
-      - run: pnpm install --frozen-lockfile
-        working-directory: typespec-hono
-      - run: pnpm build
-        working-directory: typespec-hono
 
       - run: pnpm install --frozen-lockfile
-        working-directory: typespec-http-mcp
       - run: pnpm build
-        working-directory: typespec-http-mcp
       - run: pnpm test
-        working-directory: typespec-http-mcp
       # LAST, always, see the library's workflow for why.
       - run: pnpm typecheck
-        working-directory: typespec-http-mcp
       - run: pnpm lint
-        working-directory: typespec-http-mcp
 
       # A repository that calls itself idiomatic should not depend on whoever opens it next
       # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
       # written in (tabs) rather than imposing the tool's defaults on it.
       - run: pnpm format:check
-        working-directory: typespec-http-mcp

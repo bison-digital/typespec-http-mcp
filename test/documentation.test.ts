@@ -147,13 +147,20 @@ describe("the documentation set holds together", () => {
 		expect(missing).toEqual([]);
 	});
 
-	it("the changelog names the version the package publishes", () => {
+	/**
+	 * **Stamped the way the sibling packages stamp a release**, `## [0.1.0] - 2026-09-16`, rather than
+	 * the bare heading this carried while the version was a number nobody could install. A dated entry
+	 * is what says the version went out; a `## [Unreleased]` above it is where the next one accrues.
+	 */
+	it("the changelog names the version the package publishes, as a dated release", () => {
 		const version = (
 			JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
 				version: string;
 			}
 		).version;
-		expect(changelog).toContain(`## ${version}`);
+		expect(changelog).toMatch(
+			new RegExp(`^## \\[${version.replaceAll(".", "\\.")}\\] - \\d{4}-\\d{2}-\\d{2}$`, "m"),
+		);
 	});
 
 	/**

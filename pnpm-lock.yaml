@@ -4,17 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  typespec-http-zod: link:../typespec-http-zod
-  typespec-hono: link:../typespec-hono
-
 importers:
 
   .:
     dependencies:
       typespec-http-zod:
-        specifier: link:../typespec-http-zod
-        version: link:../typespec-http-zod
+        specifier: ^0.26.0
+        version: 0.26.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))(@typespec/openapi@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(@typespec/versioning@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(zod@4.6.2)
     devDependencies:
       '@hono/zod-validator':
         specifier: ^0.9.1
@@ -74,8 +70,8 @@ importers:
         specifier: ~7.0.2
         version: 7.0.2
       typespec-hono:
-        specifier: link:../typespec-hono
-        version: link:../typespec-hono
+        specifier: 0.23.0
+        version: 0.23.0(@hono/zod-validator@0.9.1(hono@4.13.7)(zod@4.6.2))(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))(@typespec/openapi@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(@typespec/versioning@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(hono@4.13.7)(zod@4.6.2)
       typespec-http-mcp:
         specifier: link:.
         version: 'link:'
@@ -2270,6 +2266,32 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
+  typespec-hono@0.23.0:
+    resolution: {integrity: sha512-3xeN3+5bP0ZmnX3NuCQ6jBhA5PNOueKDd9+xhdPlqdx0e1PY6kYUgmicjp19dWrxKTHhArtFwe6t5kFkmt2kZA==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@hono/zod-validator': ^0.8.0 || ^0.9.0
+      '@typespec/compiler': ^1.15.0
+      '@typespec/http': ^1.15.0
+      hono: ^4.12.0
+      zod: ^4.5.0
+
+  typespec-http-zod@0.26.0:
+    resolution: {integrity: sha512-jVsuEJSI5LkNG3HcogBz/+WBWeIMOpiaIMYok7ee4y8kddENOO+6YANYZvtpTxQoigbCb9X/VwSSFDDqPA5fzg==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@typespec/compiler': ^1.15.0
+      '@typespec/http': ^1.15.0
+      '@typespec/openapi': ^1.15.0
+      '@typespec/streams': ^0.85.0 || ^0.86.0
+      '@typespec/versioning': ^0.85.0 || ^0.86.0
+      zod: ^4.5.0
+    peerDependenciesMeta:
+      '@typespec/streams':
+        optional: true
+      '@typespec/versioning':
+        optional: true
+
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
@@ -4387,6 +4409,29 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
+
+  typespec-hono@0.23.0(@hono/zod-validator@0.9.1(hono@4.13.7)(zod@4.6.2))(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))(@typespec/openapi@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(@typespec/versioning@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(hono@4.13.7)(zod@4.6.2):
+    dependencies:
+      '@hono/zod-validator': 0.9.1(hono@4.13.7)(zod@4.6.2)
+      '@typespec/compiler': 1.16.0(@types/node@26.5.1)
+      '@typespec/http': 1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))
+      hono: 4.13.7
+      typespec-http-zod: 0.26.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))(@typespec/openapi@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(@typespec/versioning@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(zod@4.6.2)
+      zod: 4.6.2
+    transitivePeerDependencies:
+      - '@typespec/openapi'
+      - '@typespec/streams'
+      - '@typespec/versioning'
+
+  typespec-http-zod@0.26.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))(@typespec/openapi@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(@typespec/versioning@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))(zod@4.6.2):
+    dependencies:
+      '@typespec/compiler': 1.16.0(@types/node@26.5.1)
+      '@typespec/http': 1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1)))
+      '@typespec/openapi': 1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/http@1.16.0(@typespec/compiler@1.16.0(@types/node@26.5.1))(@typespec/streams@0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))))
+      zod: 4.6.2
+    optionalDependencies:
+      '@typespec/streams': 0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))
+      '@typespec/versioning': 0.86.0(@typespec/compiler@1.16.0(@types/node@26.5.1))
 
   undici-types@8.9.0: {}
 

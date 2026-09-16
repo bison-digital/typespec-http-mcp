@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.0] - 2026-09-16
+
+First published release. Requires `typespec-http-zod` 0.26.0 and pairs with `typespec-hono` 0.23.0:
+one handler object satisfies both surfaces, and `test/agreement/` holds every result type identical.
+
+The sections below record what changed between the package being written and being published.
 
 ### Breaking
 
@@ -65,9 +70,7 @@
   used to refuse as undeclared. The handler's `contentType` is typed `` `image/${string}` ``, the type
   the server emitter gives it, and the range's own spelling or a type with no subtype is refused.
 
-## 0.1.0
-
-Unreleased.
+### What the package was when it was written
 
 - The emitter skeleton: options derived from `typespec-http-zod`'s published schema at both levels,
   never restated.
