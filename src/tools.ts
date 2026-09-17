@@ -140,7 +140,14 @@ export interface ToolEntry {
  */
 function intersectedValidators(entry: ToolEntry): readonly string[] {
 	const { names, route } = entry;
-	const groups = [names.path, names.query, names.header, names.body];
+	/**
+	 * **A cookie is merged like a header, and for the same reason.** A tool call carries neither, so
+	 * neither is transport the tool can set - both are inputs the operation needs, and a tool's
+	 * arguments are one object merged from every location the document declares. The alternative was
+	 * to refuse the operation, which would remove a working tool over a distinction the MCP surface
+	 * does not have.
+	 */
+	const groups = [names.path, names.query, names.header, names.cookie, names.body];
 	return groups.filter(
 		(name): name is string =>
 			name !== undefined && (route.bodyProperty === undefined || name !== names.body),
