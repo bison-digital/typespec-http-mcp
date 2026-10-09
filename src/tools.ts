@@ -57,10 +57,11 @@ const FIELDS_HELPER = `/**
  * **Zod 4 infers \`Record<string, never>\` for \`z.object({})\`.** That is a fair reading on its own -
  * no string key may exist - and lethal in an intersection: \`{ id: string } & Record<string, never>\`
  * makes \`id\` into \`string & never\`, so the input type is uninhabitable and the call site below
- * cannot compile. An empty model contributes nothing to an operation's input, and \`unknown\` is the
- * identity of \`&\`, so that is what it becomes.
+ * cannot compile. An empty model contributes nothing to an operation's input, so it becomes \`{}\`,
+ * the identity of \`&\` over the object types an input is made of - not \`unknown\`, which an input
+ * made of nothing else would then BE, and which the contract types' \`{}\` does not accept.
  */
-type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown : T) : T;
+type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T) : T;
 
 `;
 
@@ -70,8 +71,11 @@ const PRODUCED_HELPER = `/**
  * An index signature and \`readonly\` are true of an inferred type without being obligations on a
  * producer, so both are dropped here - only where the shape has declared keys beside it, because an
  * index signature also arrives as a property's own declared type, where stripping it would destroy
- * the property. An explicit \`| undefined\` on an optional property is deliberately NOT removed:
- * dropping an index signature makes MORE values assignable, and removing \`| undefined\` makes fewer.
+ * the property.
+ *
+ * It is applied to the schema's INPUT, \`z.input\`, because that is what a result is checked against:
+ * a property with a default may be left out, and an optional property is \`?: T\`, because
+ * \`.exactOptional()\` refuses an explicit \`undefined\`. Both are what the contract types state.
  */
 type ProducedKeyOf<T> = keyof {
 	[K in keyof T as string extends K
@@ -175,13 +179,31 @@ function shapedValidators(entry: ToolEntry): readonly string[] {
 function inputTypeOf(entry: ToolEntry): string {
 	const parts = intersectedValidators(entry).map((name) => `Fields<z.infer<typeof ${name}>>`);
 	if (entry.route.bodyProperty !== undefined && entry.names.body !== undefined) {
+		// `?: T`, as the sibling server types it: an absent body is an absent key.
 		const optionalMark = entry.route.optionalBody ? "?" : "";
-		const optionalValue = entry.route.optionalBody ? " | undefined" : "";
 		parts.push(
-			`{ ${objectKey(entry.route.bodyProperty)}${optionalMark}: z.infer<typeof ${entry.names.body}>${optionalValue} }`,
+			`{ ${objectKey(entry.route.bodyProperty)}${optionalMark}: z.infer<typeof ${entry.names.body}> }`,
 		);
 	}
+	const selected = selectedAcceptOf(entry);
+	if (selected !== undefined) parts.push(`{ ${selected} }`);
 	return parts.length === 0 ? EMPTY_INPUT : parts.join(" & ");
+}
+
+/**
+ * **The `accept` literal a tool supplies itself**, on a route several operations share, as
+ * `key: "literal"`.
+ *
+ * The server negotiates which operation answers, so its handler receives the one literal that reached
+ * it, and the header validator leaves `accept` out. A tool IS one of those operations, so the literal
+ * is known exactly here too: the handler receives it, and the caller is never asked for a value with
+ * one answer. It was missing, so a handler typed for the server could not be registered as a tool.
+ */
+function selectedAcceptOf(entry: ToolEntry): string | undefined {
+	const selected = entry.names.selectedAccept;
+	return selected === undefined
+		? undefined
+		: `${objectKey(selected.name)}: ${JSON.stringify(selected.value)}`;
 }
 
 /**
@@ -203,7 +225,13 @@ function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	const constructor = sealed ? "z.strictObject" : "z.looseObject";
 	const spreads = shapedValidators(entry).map((name) => `...${name}.shape`);
 	if (entry.route.bodyProperty !== undefined && entry.names.body !== undefined) {
-		spreads.push(`${objectKey(entry.route.bodyProperty)}: ${entry.names.body}`);
+		/**
+		 * **Optional where the document lets the body be absent.** It was required here while the
+		 * handler's input said \`body?:\`, so a tool call omitting a body the document makes optional
+		 * was refused before it reached the handler.
+		 */
+		const optional = entry.route.optionalBody ? ".exactOptional()" : "";
+		spreads.push(`${objectKey(entry.route.bodyProperty)}: ${entry.names.body}${optional}`);
 	}
 	if (spreads.length === 0) return "z.strictObject({})";
 	return `${constructor}({ ${spreads.join(", ")} })`;
@@ -246,16 +274,21 @@ function resultTypeOf(entry: ToolEntry): string {
 				fields.push("readonly body?: undefined");
 				break;
 			case "stream":
-				fields.push("readonly body: ReadableStream");
+				fields.push("readonly body: ByteStream");
 				break;
 			case "binary":
-				fields.push("readonly body: ReadableStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
+				/**
+				 * **`ByteStream`, not `ReadableStream`, so a backend's contract value fits**, as the sibling
+				 * server types it. The contract types state a binary body structurally, because they cannot
+				 * name the platform stream; a platform stream still satisfies it.
+				 */
+				fields.push("readonly body: ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
 				break;
 			case "unvalidated":
 				fields.push("readonly body: string");
 				break;
 			default:
-				fields.push(`readonly body: Produced<z.infer<typeof ${member.schemaName}>>`);
+				fields.push(`readonly body: Produced<z.input<typeof ${member.schemaName}>>`);
 		}
 		if (response.headers.length > 0) {
 			/**
@@ -383,6 +416,13 @@ export function renderTools(
 	 */
 	const runtimeTypes = ["McpServer", "ServerContext", "ToolDeps"];
 	if (entries.length > 0) runtimeTypes.push("Awaitable");
+	const usesByteStream = entries.some((entry) =>
+		membersOf(entry.route, entry.names).some((member) => {
+			const serving = bodyServingOf(member);
+			return serving === "binary" || serving === "stream";
+		}),
+	);
+	if (usesByteStream) runtimeTypes.push("ByteStream");
 	const from = JSON.stringify(DEFAULT_RUNTIME_MODULE);
 	const runtimeImport = [
 		...(entries.length > 0 ? [`import { toolResult } from ${from};`] : []),
@@ -482,7 +522,13 @@ export function renderTools(
 			 */
 			const parameterless =
 				intersectedValidators(entry).length === 0 && entry.route.bodyProperty === undefined;
-			const argument = parameterless ? "{}" : "{ ...args }";
+			// The selected `accept` last, so a caller's own `accept` argument cannot replace it.
+			const supplied = selectedAcceptOf(entry);
+			const fields = [
+				...(parameterless ? [] : ["...args"]),
+				...(supplied === undefined ? [] : [supplied]),
+			];
+			const argument = fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
 			const argumentName = parameterless ? "_args" : "args";
 			return `	{
 		const tool = server.registerTool(

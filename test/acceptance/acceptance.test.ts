@@ -46,6 +46,21 @@ beforeAll(async () => {
 /** A few bytes with a PNG signature, which is all an image block needs to carry. */
 const PICTURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+/**
+ * A stream that is a reader and nothing more: what a backend typed by the framework-free contract may
+ * hand back, and not the platform's `ReadableStream`.
+ */
+function readerOf(chunks: readonly Uint8Array[]) {
+	let next = 0;
+	return {
+		getReader: () => ({
+			read: async () =>
+				next < chunks.length ? { done: false, value: chunks[next++] } : { done: true },
+			releaseLock: () => {},
+		}),
+	};
+}
+
 /** Every handler the fixture declares, returning a response the document declares for it. */
 function handlersFor(): Record<string, unknown> {
 	const widget = { id: "1", name: "a", colour: "grey" };
@@ -70,16 +85,40 @@ function handlersFor(): Record<string, unknown> {
 				: input.widgetId === "malformed"
 					? { status: 202, body: { code: "x", message: "not a widget" } }
 					: { status: 200, body: widget },
-		WidgetTools_picture: () => ({
+		WidgetTools_picture: (_ctx: unknown, input: { widgetId: string }) => ({
 			status: 200,
 			// A type inside the `image/*` range, not the exact `image/png` beside it.
 			contentType: "image/webp",
-			body: new ReadableStream<Uint8Array>({
-				start(controller) {
-					controller.enqueue(PICTURE);
-					controller.close();
-				},
-			}),
+			body:
+				input.widgetId === "reader"
+					? readerOf([PICTURE.subarray(0, 3), PICTURE.subarray(3)])
+					: new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(PICTURE);
+								controller.close();
+							},
+						}),
+		}),
+		// Each says which `accept` it was handed, which the caller never sends.
+		WidgetTools_summaryAsText: (_ctx: unknown, input: { widgetId: string; accept: string }) => ({
+			status: 200,
+			body: `${input.widgetId} as ${input.accept}`,
+		}),
+		WidgetTools_summaryAsJson: (_ctx: unknown, input: { widgetId: string; accept: string }) => ({
+			status: 200,
+			body: { message: `${input.widgetId} as ${input.accept}` },
+		}),
+		// Says which input it was given, so a call can see whether the key was left out.
+		WidgetTools_markSeen: (
+			_ctx: unknown,
+			input: { widgetId: string; body?: { text: string } },
+		) => ({
+			status: 200,
+			body: {
+				...widget,
+				id: input.widgetId,
+				name: "body" in input ? `noted: ${input.body?.text}` : "unnoted",
+			},
 		}),
 		WidgetTools_label: () => ({ status: 200, body: "widget one" }),
 		WidgetTools_remove: () => ({ status: 204 }),
@@ -211,6 +250,80 @@ describe("a real client, over the wire, against emitted output", () => {
 		expect(json.result.content).toEqual([
 			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/webp" },
 		]);
+	});
+
+	/**
+	 * **A stream that is only a reader is read through it.** The result type admits one, because the
+	 * contract types a binary body structurally; the runtime once read only the platform's stream, and
+	 * refused this as a body that is not bytes.
+	 */
+	it("answers image bytes from a stream that is only a reader, over the wire", async () => {
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_picture",
+			arguments: { widgetId: "reader" },
+		});
+		expect(json.result.isError, JSON.stringify(json)).toBeUndefined();
+		expect(json.result.content).toEqual([
+			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/webp" },
+		]);
+	});
+
+	/**
+	 * **A body the document makes optional may be left out of a call.** The handler is typed
+	 * `body?:`, and the tool's schema used to require it, so a call without one was refused before
+	 * it reached the handler.
+	 */
+	it("calls a tool whose body is optional without one, and with one", async () => {
+		const without = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_markSeen",
+			arguments: { widgetId: "7" },
+		});
+		expect(without.json.result.isError, JSON.stringify(without.json)).toBeUndefined();
+		expect(without.json.result.structuredContent).toEqual({
+			id: "7",
+			name: "unnoted",
+			colour: "grey",
+		});
+
+		const given = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_markSeen",
+			arguments: { widgetId: "7", body: { text: "hello" } },
+		});
+		expect(given.json.result.isError, JSON.stringify(given.json)).toBeUndefined();
+		expect(given.json.result.structuredContent).toEqual({
+			id: "7",
+			name: "noted: hello",
+			colour: "grey",
+		});
+
+		// Still validated when it is given.
+		const malformed = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_markSeen",
+			arguments: { widgetId: "7", body: { text: 1 } },
+		});
+		expect(malformed.json.result.isError).toBe(true);
+		expect(malformed.json.result.content[0].text).toContain("body.text");
+	});
+
+	/**
+	 * **A tool on a negotiated route hands its handler the `accept` that selects it.** The server's
+	 * handler receives that literal, so one handler object serves both surfaces only if the tool
+	 * supplies it too; the caller is not asked for it, and cannot replace it.
+	 */
+	it("hands a negotiated operation's handler its own accept, which the caller does not send", async () => {
+		const text = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_summaryAsText",
+			arguments: { widgetId: "3" },
+		});
+		expect(text.json.result.isError, JSON.stringify(text.json)).toBeUndefined();
+		expect(text.json.result.content).toEqual([{ type: "text", text: "3 as text/plain" }]);
+
+		const json = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_summaryAsJson",
+			arguments: { widgetId: "3", accept: "text/plain" },
+		});
+		expect(json.json.result.isError, JSON.stringify(json.json)).toBeUndefined();
+		expect(json.json.result.structuredContent).toEqual({ message: "3 as application/json" });
 	});
 
 	it("answers a text body as a text block, over the wire", async () => {

@@ -20,7 +20,10 @@ import { Hono } from "hono";
 import { registerRoutes, type Operations } from "./.out/agreement/app.gen.js";
 import { registerTools, type Tools } from "./.out/agreement/mcp.gen.js";
 import type { McpServer, ToolDeps } from "./.out/agreement/mcp-runtime.gen.js";
-import type { AppEnv, RouteDeps } from "./.out/agreement/runtime.gen.js";
+import type { AppEnv, ByteStream, RouteDeps } from "./.out/agreement/runtime.gen.js";
+
+/** The tool runtime's own stream type, named apart from the server runtime's. */
+type ToolByteStream = import("./.out/agreement/mcp-runtime.gen.js").ByteStream;
 
 /** What both surfaces' `deps.context` establish, and therefore what every handler receives. */
 interface Caller {
@@ -33,6 +36,9 @@ declare const server: McpServer;
 
 const widget = { id: "1", name: "a", colour: "grey" };
 
+/** A stream that is a reader and nothing more, as the framework-free contract types one. */
+declare const reader: ToolByteStream;
+
 /**
  * **`satisfies`, not an annotation.** An annotation widens the value to the annotation, `T` then
  * infers as that annotation, `Exclude<keyof T, ...>` collapses to `never`, and the surplus-key guard
@@ -42,8 +48,9 @@ const widget = { id: "1", name: "a", colour: "grey" };
  *
  * Every kind of response the spec declares is returned here: an exact failure, a status inside a
  * range with its optional header, a status the `default` arm governs, a required header on a success,
- * two success statuses with different bodies, a bodyless `204`, text, image bytes as a stream, and a
- * model the handler serialises to XML.
+ * two success statuses with different bodies, a bodyless `204`, text, image bytes as a stream - a
+ * platform one, and one that is only a reader, as a backend's contract value is - and a model the
+ * handler serialises to XML. An optional body is read as absent by leaving the key out.
  *
  * `WidgetTools_archive` answers bytes no tool result can carry, so the tool surface refuses it and the
  * HTTP surface serves it. It is still in this ONE object: `registerTools` accepts a handler for an
@@ -82,13 +89,27 @@ const operations = {
 			? { status: 404, body: { resource: input.widgetId } }
 			: input.widgetId === "webp"
 				? { status: 200, contentType: "image/webp", body: new ReadableStream<Uint8Array>() }
-				: { status: 200, contentType: "image/png", body: new ReadableStream<Uint8Array>() },
+				: input.widgetId === "reader"
+					? { status: 200, contentType: "image/png", body: reader }
+					: { status: 200, contentType: "image/png", body: new ReadableStream<Uint8Array>() },
 	WidgetTools_label: (_ctx: Caller, input) => ({ status: 200, body: `widget ${input.widgetId}` }),
 	WidgetTools_asXml: (_ctx: Caller, input) => ({
 		status: 200,
 		body: `<widget><id>${input.widgetId}</id></widget>`,
 	}),
 	WidgetTools_archive: (_ctx: Caller, _input) => ({ status: 200, body: new Uint8Array([1, 2, 3]) }),
+	WidgetTools_summaryAsText: (_ctx: Caller, input) => ({
+		status: 200,
+		body: `${input.widgetId} as ${input.accept}`,
+	}),
+	WidgetTools_summaryAsJson: (_ctx: Caller, input) => ({
+		status: 200,
+		body: { message: `${input.widgetId} as ${input.accept}` },
+	}),
+	WidgetTools_markSeen: (_ctx: Caller, input) =>
+		"body" in input
+			? { status: 200, body: { ...widget, id: input.widgetId, name: input.body.text } }
+			: { status: 200, body: { ...widget, id: input.widgetId } },
 	WidgetTools_remove: (_ctx: Caller, input) =>
 		input.widgetId === "missing"
 			? { status: 404, body: { resource: input.widgetId } }
@@ -151,6 +172,23 @@ type _AsXml = MustHold<
 type _Remove = MustHold<
 	Identical<Tools<Caller>["WidgetTools_remove"], Operations<Caller>["WidgetTools_remove"]>
 >;
+type _SummaryAsText = MustHold<
+	Identical<
+		Tools<Caller>["WidgetTools_summaryAsText"],
+		Operations<Caller>["WidgetTools_summaryAsText"]
+	>
+>;
+type _SummaryAsJson = MustHold<
+	Identical<
+		Tools<Caller>["WidgetTools_summaryAsJson"],
+		Operations<Caller>["WidgetTools_summaryAsJson"]
+	>
+>;
+type _MarkSeen = MustHold<
+	Identical<Tools<Caller>["WidgetTools_markSeen"], Operations<Caller>["WidgetTools_markSeen"]>
+>;
+/** Each runtime declares the stream type itself, since neither imports the other; one type. */
+type _OneByteStream = MustHold<Identical<ToolByteStream, ByteStream>>;
 
 export type {
 	_AsXml,
@@ -159,11 +197,15 @@ export type {
 	_Keys,
 	_Label,
 	_List,
+	_MarkSeen,
+	_OneByteStream,
 	_Picture,
 	_Read,
 	_Refused,
 	_Reindex,
 	_Remove,
 	_Replace,
+	_SummaryAsJson,
+	_SummaryAsText,
 };
 export { app, operations };

@@ -11,9 +11,9 @@ using Http;
  *
  * It carries one of everything the emitter has to reason about: a path parameter, a query parameter
  * that arrives as text, a header whose wire name differs from its TypeSpec name, a body with a
- * DEFAULTED property, a parameterless operation, a bodyless success, a tagged interface, an
- * operation excluded by tag, and every method whose safety or idempotence the annotations derive
- * from.
+ * DEFAULTED property, a body the caller may leave out, a parameterless operation, a bodyless success,
+ * two operations negotiating one route by `accept`, a tagged interface, an operation excluded by tag,
+ * and every method whose safety or idempotence the annotations derive from.
  *
  * **And one of every kind of response a handler returns**, because the result type is where the two
  * emitters are likeliest to part company: an exact failure, a failure RANGE with an optional header,
@@ -115,6 +115,10 @@ model Removed {
   @statusCode statusCode: 204;
 }
 
+model Note {
+  text: string;
+}
+
 @tag("agent")
 @route("/widgets")
 interface WidgetTools {
@@ -153,6 +157,24 @@ interface WidgetTools {
     @header contentType: "application/octet-stream";
     @body body: bytes;
   };
+
+  /** A widget's summary as text: one of two operations on one route, chosen by `accept`. */
+  @sharedRoute
+  @route("/{widgetId}/summary")
+  @get
+  summaryAsText(@path widgetId: string, @header accept: "text/plain"): {
+    @header contentType: "text/plain";
+    @body body: string;
+  };
+
+  /** A widget's summary as JSON: the other operation on the same route. */
+  @sharedRoute
+  @route("/{widgetId}/summary")
+  @get
+  summaryAsJson(@path widgetId: string, @header accept: "application/json"): Detail;
+
+  /** Mark a widget as seen, with a note or without one: the body is optional. */
+  @route("/{widgetId}/seen") @post markSeen(@path widgetId: string, @body body?: Note): Widget | NotFound;
 
   /** Permanently remove a widget. */
   @route("/{widgetId}") @delete remove(@path widgetId: string): Removed | NotFound | Problem;

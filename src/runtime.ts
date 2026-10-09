@@ -199,16 +199,63 @@ function refusedBody(input: unknown, message: string): ZodError["issues"] {
 }
 
 /**
+ * **A stream of bytes, as every platform's `ReadableStream<Uint8Array>` satisfies it.**
+ *
+ * The same structural type `typespec-http-zod` publishes in `requests.gen.ts` and `typespec-hono`
+ * declares in its runtime, so a backend whose result is typed by the framework-free contract can be
+ * returned from a handler as it is. Declared here rather than imported because this file is copied
+ * into a consumer's Worker, where the emitter packages are not installed; the agreement test holds
+ * the declarations identical.
+ */
+export interface ByteStream {
+	getReader(): {
+		read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array | undefined }>;
+		releaseLock(): void;
+	};
+}
+
+/**
  * The bytes of a binary body, which a handler may hand over in any of the forms the result type admits.
  *
- * A stream is buffered: a tool result is one message, and the block carries the whole of it.
- * `Response` reads it, because both runtimes this output runs on, Node and workerd, provide it.
+ * A stream is buffered: a tool result is one message, and the block carries the whole of it. It is
+ * read through its reader, which is all `ByteStream` promises, so a stream that is not the platform's
+ * - a contract value from a backend, a test double - is read the same way. A value that is not a
+ * `Uint8Array` is not a byte, and refuses the body rather than being coerced.
  */
 async function bytesOf(body: unknown): Promise<Uint8Array | undefined> {
 	if (body instanceof Uint8Array) return body;
 	if (body instanceof ArrayBuffer) return new Uint8Array(body);
-	if (body instanceof ReadableStream) return new Uint8Array(await new Response(body).arrayBuffer());
-	return undefined;
+	if (!isByteStream(body)) return undefined;
+	const reader = body.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!(value instanceof Uint8Array)) return undefined;
+			chunks.push(value);
+			length += value.byteLength;
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
+
+function isByteStream(value: unknown): value is ByteStream {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"getReader" in value &&
+		typeof value.getReader === "function"
+	);
 }
 
 /** Base64, in chunks, so a large body does not exceed the argument limit of one call. */
@@ -338,7 +385,7 @@ export async function toolResult(
 					status,
 					refusedBody(
 						answer.body,
-						"a binary body is a Uint8Array, an ArrayBuffer or a ReadableStream",
+						"a binary body is a Uint8Array, an ArrayBuffer or a stream of Uint8Array chunks",
 					),
 				);
 			}

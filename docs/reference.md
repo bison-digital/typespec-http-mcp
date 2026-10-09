@@ -55,6 +55,19 @@ same spec into the same directory, the two emitters would otherwise both claim `
 of `emit:` in `tspconfig.yaml`. With distinct runtime filenames the only file the two can contest is
 `schemas.gen.ts`, which imports no runtime and is byte-identical under identical options.
 
+## What a tool takes
+
+A tool's arguments are one object: the operation's path, query, header and cookie parameters, and
+its body. The handler is given the same input the sibling server's handler is given.
+
+- **A model body is merged with the parameters.** A body the merge cannot express (a union, an
+  array, a scalar, a model with an index signature) is one argument under its parameter's name.
+- **An optional body may be left out.** Its argument is `.exactOptional()`, so a call without it
+  reaches the handler with no `body` key, which is what `body?:` in the handler's input states.
+- **On a route several operations share, `accept` is not an argument.** It selects which operation
+  answers, so each tool hands its handler its own operation's literal, as the server does. A
+  caller's own `accept` argument cannot replace it.
+
 ## What a tool answers
 
 A handler returns `{ status, body, headers }` for a response the document declares, and the
@@ -76,8 +89,10 @@ generated callback hands it to `toolResult`:
 | a 2xx or 3xx through another arm, with an `outputSchema` | checked against the `outputSchema`: `structuredContent` if it passes, `ResponseContractError` if not |
 | declared response headers                                | `_meta["typespec-http-mcp/response-headers"]`, keyed by wire name                                    |
 
-A binary body may be a `Uint8Array`, an `ArrayBuffer` or a `ReadableStream`; a stream is read to its
-end, because a tool result is one message. `mimeType` is the media type served: the handler's
+A binary body may be a `Uint8Array`, an `ArrayBuffer` or a `ByteStream`: any stream of `Uint8Array`
+chunks, which is how the framework-free contract types (`requests.gen.ts`) state one, and which every
+platform `ReadableStream` satisfies. A stream is read to its end through its reader, because a tool
+result is one message, and a chunk that is not a `Uint8Array` throws `ResponseContractError`. `mimeType` is the media type served: the handler's
 `contentType` where the status offers several or a range, otherwise the one it offers.
 
 The runtime cannot tell a string, bytes and a serialised model apart from an arm, so the generated

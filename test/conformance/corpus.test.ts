@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { compile, NodeHost } from "@typespec/compiler";
 import { beforeAll, describe, expect, it } from "vitest";
+import { corpusScenarios, packageRoot } from "./scenarios.js";
 
 /**
  * **Every scenario `@typespec/http-specs` declares, emitted and COMPILED.**
@@ -17,8 +17,6 @@ import { beforeAll, describe, expect, it } from "vitest";
  * estate has already recorded once, and it is the one that hid all four.
  */
 
-const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
-const specs = join(packageRoot, "node_modules", "@typespec", "http-specs", "specs");
 const outputRoot = join(packageRoot, "test", ".out-corpus");
 
 /**
@@ -63,23 +61,10 @@ interface Scenario {
 
 let scenarios: Scenario[] = [];
 
-function mainsUnder(dir: string, found: string[] = []): string[] {
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		const full = join(dir, entry.name);
-		if (entry.isDirectory()) mainsUnder(full, found);
-		else if (entry.name === "main.tsp") found.push(full);
-	}
-	return found;
-}
-
 beforeAll(async () => {
 	rmSync(outputRoot, { recursive: true, force: true });
 	const collected: Scenario[] = [];
-	for (const main of mainsUnder(specs)) {
-		const name = main
-			.slice(specs.length + 1)
-			.replace(/\/main\.tsp$/, "")
-			.replaceAll("/", "__");
+	for (const { name, main } of corpusScenarios()) {
 		const dir = join(outputRoot, name);
 		const program = await compile(NodeHost, main, {
 			outputDir: dir,

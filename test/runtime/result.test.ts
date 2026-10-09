@@ -396,6 +396,46 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 		expect(result.content).toEqual([{ type: "image", data: pngBase64, mimeType: "image/png" }]);
 	});
 
+	/**
+	 * **Any stream of `Uint8Array` chunks, not only the platform's**, because the result type admits
+	 * the contract's structural `ByteStream`. Read to its end, and the reader released.
+	 */
+	it("answers a stream that is only a reader as the same block, and releases it", async () => {
+		const chunks = [png.subarray(0, 3), png.subarray(3)];
+		let released = 0;
+		const stream = {
+			getReader: () => ({
+				read: async () => {
+					const value = chunks.shift();
+					return value === undefined ? { done: true } : { done: false, value };
+				},
+				releaseLock: () => {
+					released += 1;
+				},
+			}),
+		};
+		const result = await toolResult(image, "png", { status: 200, body: stream });
+		expect(parse(result).success).toBe(true);
+		expect(result.content).toEqual([{ type: "image", data: pngBase64, mimeType: "image/png" }]);
+		expect(released).toBe(1);
+	});
+
+	it("refuses a stream whose chunk is not bytes, and releases it", async () => {
+		let released = 0;
+		const stream = {
+			getReader: () => ({
+				read: async () => ({ done: false, value: "not bytes" }),
+				releaseLock: () => {
+					released += 1;
+				},
+			}),
+		};
+		await expect(toolResult(image, "png", { status: 200, body: stream })).rejects.toThrow(
+			ResponseContractError,
+		);
+		expect(released).toBe(1);
+	});
+
 	it("names the media type the handler chose inside a range", async () => {
 		const range: ToolResponses = {
 			arms: [{ status: 200, schema: z.unknown(), contentTypes: ["image/*"] }],

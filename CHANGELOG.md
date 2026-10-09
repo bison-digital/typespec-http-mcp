@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased]
+
+Requires `typespec-http-zod` 0.28.0 and pairs with `typespec-hono` 0.25.0. `test/agreement/` and the
+new corpus arm hold every tool signature identical to the server handler's.
+
+### Changed, breaking
+
+- **A result's body is typed from the schema's input, `Produced<z.input<...>>`**, as the server
+  types it. A property with a default may be left out of a returned body, because the runtime fills
+  it before answering, and a plain optional property is `?: T`, because `.exactOptional()` refuses
+  an explicit `undefined`.
+- **An optional request body is `body?: T` in the handler's input**, with no `| undefined`: an
+  absent body is an absent key, as the server hands it over.
+- **A binary result body is `ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer`**, where it was
+  `ReadableStream | ...`. `ByteStream` is exported from `mcp-runtime.gen.ts` and is the same type
+  `requests.gen.ts` and `typespec-hono`'s runtime declare. A platform `ReadableStream` still
+  satisfies it, so a handler returning one compiles as before.
+- **An empty model contributes `{}` to a handler's input**, not `unknown`, as the server types it.
+- **A tool on a negotiated route hands its handler `accept`.** On a route several operations share,
+  the server's handler receives its operation's `accept` literal; the tool's did not, so one handler
+  object could not serve both. The tool supplies the literal itself, and the caller is never asked
+  for it.
+
+### Fixed
+
+- **A tool whose body the document makes optional can be called without one.** The handler's input
+  said `body?:` while the tool's schema required it, so such a call was refused by argument
+  validation before it reached the handler.
+- **A binary result from any stream of `Uint8Array` chunks is answered.** The runtime read only the
+  platform's `ReadableStream`, and refused a stream that is only a reader, which is how a backend
+  typed by the contract types hands one back. It is read through its reader, which is released.
+- **A cookie parameter is merged into a tool's arguments**, as a header already is.
+
+### Changed
+
+- **Built and graded against TypeSpec 1.17.**
+- **The result rules and the status table are the library's**, `resultMembersOf` and
+  `STATUS_CODES`. This package held a copy of both.
+
+### Added (graded, not shipped)
+
+- **`test/conformance/agreement.test.ts`: every tool signature against the server handler's, over
+  the whole corpus**, both emitters in one program per scenario. Its first run found the missing
+  `accept` above, and planting `unknown` back into `Fields` fails it on three scenarios.
+
 ## [0.1.0] - 2026-09-16
 
 First published release. Requires `typespec-http-zod` 0.26.0 and pairs with `typespec-hono` 0.23.0:
