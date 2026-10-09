@@ -120,6 +120,7 @@ function handlersFor(): Record<string, unknown> {
 				name: "body" in input ? `noted: ${input.body?.text}` : "unnoted",
 			},
 		}),
+		WidgetTools_photo: () => ({ status: 200, contentType: "image/png", body: PICTURE }),
 		WidgetTools_label: () => ({ status: 200, body: "widget one" }),
 		WidgetTools_remove: () => ({ status: 204 }),
 	};
@@ -324,6 +325,18 @@ describe("a real client, over the wire, against emitted output", () => {
 		});
 		expect(json.json.result.isError, JSON.stringify(json.json)).toBeUndefined();
 		expect(json.json.result.structuredContent).toEqual({ message: "3 as application/json" });
+	});
+
+	/** A file is bytes with a media type, so it is answered as the block its type names. */
+	it("answers a file response as an image block, over the wire", async () => {
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_photo",
+			arguments: { widgetId: "1" },
+		});
+		expect(json.result.isError, JSON.stringify(json)).toBeUndefined();
+		expect(json.result.content).toEqual([
+			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/png" },
+		]);
 	});
 
 	it("answers a text body as a text block, over the wire", async () => {

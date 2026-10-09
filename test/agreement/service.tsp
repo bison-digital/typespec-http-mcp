@@ -19,8 +19,8 @@ using Http;
  * emitters are likeliest to part company: an exact failure, a failure RANGE with an optional header,
  * the `default` catch-all, a required header on a success, two success statuses with different
  * bodies, and a bodyless `204`. And one of every body that is not JSON: text, an image, a model a
- * handler serialises as XML, and bytes no tool result can carry, which the tool surface refuses and
- * the HTTP surface serves.
+ * handler serialises as XML, a file, and bytes no tool result can carry, which the tool surface
+ * refuses and the HTTP surface serves.
  */
 @service(#{ title: "Widgets" })
 @useAuth(BearerAuth | Scoped)
@@ -139,6 +139,9 @@ interface WidgetTools {
     @header contentType: "image/png" | "image/*";
     @body body: bytes;
   } | NotFound;
+
+  /** A widget's photo, as a file of one of two image types. */
+  @route("/{widgetId}/photo") @get photo(@path widgetId: string): Http.File<"image/png" | "image/jpeg">;
 
   /** A widget's label, as plain text. */
   @route("/{widgetId}/label") @get label(@path widgetId: string): {

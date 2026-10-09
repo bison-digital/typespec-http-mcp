@@ -92,6 +92,10 @@ const operations = {
 				: input.widgetId === "reader"
 					? { status: 200, contentType: "image/png", body: reader }
 					: { status: 200, contentType: "image/png", body: new ReadableStream<Uint8Array>() },
+	WidgetTools_photo: (_ctx: Caller, input) =>
+		input.widgetId === "jpeg"
+			? { status: 200, contentType: "image/jpeg", body: new Uint8Array([0xff, 0xd8]) }
+			: { status: 200, contentType: "image/png", body: reader },
 	WidgetTools_label: (_ctx: Caller, input) => ({ status: 200, body: `widget ${input.widgetId}` }),
 	WidgetTools_asXml: (_ctx: Caller, input) => ({
 		status: 200,
@@ -163,6 +167,9 @@ type _Replace = MustHold<
 type _Picture = MustHold<
 	Identical<Tools<Caller>["WidgetTools_picture"], Operations<Caller>["WidgetTools_picture"]>
 >;
+type _Photo = MustHold<
+	Identical<Tools<Caller>["WidgetTools_photo"], Operations<Caller>["WidgetTools_photo"]>
+>;
 type _Label = MustHold<
 	Identical<Tools<Caller>["WidgetTools_label"], Operations<Caller>["WidgetTools_label"]>
 >;
@@ -199,6 +206,7 @@ export type {
 	_List,
 	_MarkSeen,
 	_OneByteStream,
+	_Photo,
 	_Picture,
 	_Read,
 	_Refused,

@@ -31,6 +31,8 @@ new corpus arm hold every tool signature identical to the server handler's.
 - **A binary result from any stream of `Uint8Array` chunks is answered.** The runtime read only the
   platform's `ReadableStream`, and refused a stream that is only a reader, which is how a backend
   typed by the contract types hands one back. It is read through its reader, which is released.
+- **An `Http.File` response is answered as the `image` or `audio` block its media type names.** The
+  library read no file body, so the result type declared none and the tool answered `content: []`.
 - **A cookie parameter is merged into a tool's arguments**, as a header already is.
 
 ### Changed
