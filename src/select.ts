@@ -1,5 +1,5 @@
 import { getAllTags, type Program } from "@typespec/compiler";
-import type { HttpOperation, HttpService } from "@typespec/http";
+import type { HttpOperation } from "@typespec/http";
 import type { EmittedRoute } from "typespec-http-zod";
 
 /**
@@ -40,53 +40,21 @@ export interface SelectionOptions {
 }
 
 /**
- * The lookup key both sides agree on.
- *
- * **Lower-cased, and that is not cosmetic.** `EmittedRoute.verb` is UPPERCASE (`"GET"`) while
- * `HttpOperation.verb` is lowercase (`"get"`) -- measured, on this package's own fixture. A
- * case-sensitive key misses every operation, and the failure is silent in the worst possible way:
- * the emitter selects nothing, reports `no-tools-selected`, and the message blames the tag
- * configuration. It was caught here only because a fixture asserted that an unnarrowed selection
- * selects SOMETHING.
+ * **Each route's operation is read by its operation id**, from the library's `operations`. It was
+ * looked up by verb and path, which `@sharedRoute` does not make unique, so every member of a shared
+ * route was selected by one member's tags.
  */
-function keyOf(verb: string, path: string): string {
-	return `${verb.toLowerCase()} ${path}`;
-}
-
-/** The `HttpOperation` behind each emitted route, keyed by verb and path. */
-export function operationsById(service: HttpService): ReadonlyMap<string, HttpOperation> {
-	const byVerbAndPath = new Map<string, HttpOperation>();
-	for (const operation of service.operations) {
-		byVerbAndPath.set(keyOf(operation.verb, operation.path), operation);
-	}
-	return byVerbAndPath;
-}
-
-/**
- * Look an operation up by verb and path, never by name.
- *
- * **Matching on operation NAME silently fails for every operation declared inside an `interface`**,
- * which is most of them in a real spec -- a defect this estate has already paid for once. The verb
- * and the path are what both the route and the document agree on.
- */
-export function httpOperationFor(
-	service: HttpService,
-	route: EmittedRoute,
-): HttpOperation | undefined {
-	return operationsById(service).get(keyOf(route.verb, route.path));
-}
-
 export function selectTools(
 	program: Program,
-	service: HttpService,
-	routes: readonly EmittedRoute[],
+	routes: readonly Pick<EmittedRoute, "operationId">[],
+	operations: ReadonlyMap<string, HttpOperation>,
 	options: SelectionOptions,
 ): Selection {
 	const available = new Set<string>();
 	const selected: string[] = [];
 
 	for (const route of routes) {
-		const operation = httpOperationFor(service, route);
+		const operation = operations.get(route.operationId);
 		if (operation === undefined) continue;
 		const tags = getAllTags(program, operation.operation) ?? [];
 		for (const tag of tags) available.add(tag);

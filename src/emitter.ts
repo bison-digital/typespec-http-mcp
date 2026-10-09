@@ -10,7 +10,7 @@ import { nameTools } from "./names.js";
 import { collisionsFor } from "./coexistence.js";
 import { refusalFor, warningsFor } from "./refusals.js";
 import { renderTools, type ToolEntry } from "./tools.js";
-import { httpOperationFor, selectTools } from "./select.js";
+import { selectTools } from "./select.js";
 
 /**
  * Where emitted output imports its runtime from. Declared where the import is rendered, and
@@ -87,19 +87,18 @@ function resolveToolOptions(options: EmitterOptions, serviceName: string): Resol
 }
 
 /**
- * Where a diagnostic about an operation should point.
+ * Where a diagnostic about an operation should point: the operation the library collected the route
+ * from, by its id.
  *
- * **Keyed on verb and path, never on operation name.** Matching by name never succeeds for an
- * operation declared inside an `interface`, which is most of them -- a defect this estate has
- * already paid for once, where a whole class of refusal silently pointed at nothing.
+ * **Never by name, and never by verb and path.** A name never matches an operation declared inside
+ * an `interface`, whose id carries the interface; verb and path are shared by every member of a
+ * `@sharedRoute`, so each member's diagnostic pointed at one of them.
  */
 function targetFor(
 	emitted: EmittedService,
 	operationId: string,
 ): DiagnosticTarget | typeof NoTarget {
-	const route = emitted.routes.find((candidate) => candidate.operationId === operationId);
-	if (route === undefined) return NoTarget;
-	return httpOperationFor(emitted.service, route)?.operation ?? NoTarget;
+	return emitted.operations.get(operationId)?.operation ?? NoTarget;
 }
 
 /**
@@ -138,7 +137,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		const resolved = resolveToolOptions(options, serviceName);
 		if (!resolved.emitTools) continue;
 
-		const selection = selectTools(context.program, emitted.service, emitted.routes, {
+		const selection = selectTools(context.program, emitted.routes, emitted.operations, {
 			toolTags: resolved.toolTags,
 			excludeTags: resolved.excludeTags,
 		});
@@ -186,7 +185,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 			const toolName = named.names.get(route.operationId);
 			if (toolName === undefined) continue;
 			const names = emitted.schemaNames.get(route.operationId);
-			const operation = httpOperationFor(emitted.service, route);
+			const operation = emitted.operations.get(route.operationId);
 			if (names === undefined || operation === undefined) continue;
 
 			/** A refusal removes the operation from the surface, so it is counted, never skipped. */

@@ -25,6 +25,11 @@ new corpus arm hold every tool signature identical to the server handler's.
 
 ### Fixed
 
+- **Each operation on a shared route is its own tool: its own description, its own tags and its
+  own diagnostics.** Operations were looked up by verb and path, which `@sharedRoute` gives every
+  member, so each member published one member's doc comment as its description, was selected by
+  that member's tags, and had its warnings raised against it. They are read by operation id from
+  the library's `EmittedService.operations`.
 - **A tool whose body the document makes optional can be called without one.** The handler's input
   said `body?:` while the tool's schema required it, so such a call was refused by argument
   validation before it reached the handler.

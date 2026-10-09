@@ -93,16 +93,15 @@ describe("selection narrows, and by the tag the document publishes", () => {
 		service = services[0]!;
 	}, 300_000);
 
-	/** `selectTools` keys on `EmittedRoute`, so the fixture's operations are adapted to that shape. */
-	const routesOf = () =>
-		service.operations.map((operation) => ({
-			operationId: `${operation.verb}:${operation.path}`,
-			verb: operation.verb.toUpperCase(),
-			path: operation.path,
-		})) as unknown as Parameters<typeof selectTools>[2];
+	/** Each operation under an id of its own, as the library publishes them. */
+	const operationsOf = () =>
+		new Map(
+			service.operations.map((operation) => [`${operation.verb}:${operation.path}`, operation]),
+		);
+	const routesOf = () => [...operationsOf().keys()].map((operationId) => ({ operationId }));
 
 	it("selects every operation when nothing narrows", () => {
-		const { selected } = selectTools(program, service, routesOf(), {
+		const { selected } = selectTools(program, routesOf(), operationsOf(), {
 			toolTags: undefined,
 			excludeTags: [],
 		});
@@ -110,7 +109,7 @@ describe("selection narrows, and by the tag the document publishes", () => {
 	});
 
 	it("selects the INTERFACE member by its inherited tag", () => {
-		const { selected } = selectTools(program, service, routesOf(), {
+		const { selected } = selectTools(program, routesOf(), operationsOf(), {
 			toolTags: ["agent"],
 			excludeTags: [],
 		});
@@ -123,7 +122,7 @@ describe("selection narrows, and by the tag the document publishes", () => {
 	});
 
 	it("excludes by tag, even when the operation was selected", () => {
-		const { selected } = selectTools(program, service, routesOf(), {
+		const { selected } = selectTools(program, routesOf(), operationsOf(), {
 			toolTags: ["agent"],
 			excludeTags: ["admin"],
 		});
@@ -131,7 +130,7 @@ describe("selection narrows, and by the tag the document publishes", () => {
 	});
 
 	it("reports every tag the service declares, for the diagnostic to name", () => {
-		const { available } = selectTools(program, service, routesOf(), {
+		const { available } = selectTools(program, routesOf(), operationsOf(), {
 			toolTags: undefined,
 			excludeTags: [],
 		});
