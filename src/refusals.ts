@@ -88,8 +88,13 @@ export function refusalFor(
 	 * A raw body is bytes or a stream; a multipart body is parts, one of which is usually a file.
 	 * Neither is a JSON value, and encoding one into a string argument would put an upload through a
 	 * model's context window under a contract the document never stated.
+	 *
+	 * **A raw body that is TEXT under no JSON type is not this:** a model declared only as XML is
+	 * handed to a server as the text that arrived, and what MCP cannot carry about it is the media
+	 * type, which the next check names. Text under a JSON type - a `bytes` body a signature covers -
+	 * stays here, as it always has.
 	 */
-	if (route.rawBodyProperty !== undefined) {
+	if (route.rawBodyProperty !== undefined && (route.rawBodyBinary || types.some(isJson))) {
 		return {
 			kind: "binary-tool-input",
 			types: types.length === 0 ? "a raw body" : types.join(", "),

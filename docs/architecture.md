@@ -9,7 +9,7 @@ What each module owns, and the boundaries `test/architecture/architecture.test.t
                           |
   DERIVE (read the program)          RENDER (produce text)        CONSUMER (copied out)
     select.ts    tags -> tools          tools.ts                    runtime.ts
-    refusals.ts  what cannot be a tool    |  statuses.ts              toolResult, armFor,
+    refusals.ts  what cannot be a tool    |                           toolResult, armFor,
     names.ts     ids -> tool names        |                           ResponseArm, errors
     annotations.ts verb -> hints          |
     coexistence.ts peers -> collisions    |
@@ -17,19 +17,18 @@ What each module owns, and the boundaries `test/architecture/architecture.test.t
                            emitter.ts  orchestrates, reports, writes
 ```
 
-| module           | owns                                                          | may reach                                   |
-| ---------------- | ------------------------------------------------------------- | ------------------------------------------- |
-| `lib.ts`         | the options schema, the diagnostics, the package name         | the compiler, the library                   |
-| `select.ts`      | which operations are tools, and the route-to-operation lookup | the compiler, `@typespec/http`              |
-| `refusals.ts`    | what cannot be a tool, and what merely warrants a warning     | the library's types                         |
-| `names.ts`       | tool names, MCP's name rule, collisions                       | **nothing**                                 |
-| `annotations.ts` | the RFC 9110 hints                                            | **nothing**                                 |
-| `coexistence.ts` | peer emitters writing where this one writes                   | the compiler                                |
-| `tools.ts`       | the text of `mcp.gen.ts`, result unions included              | the library's types, `zod`, the SDK's types |
-| `statuses.ts`    | Hono's status-code sets, as values                            | **nothing**                                 |
-| `bodies.ts`      | what each response body is: JSON, text, bytes, unvalidated    | the library's types                         |
-| `runtime.ts`     | what emitted code imports at run time                         | **only what a consumer installs**           |
-| `emitter.ts`     | orchestration: run the library, select, refuse, render, write | everything above                            |
+| module           | owns                                                                                                                      | may reach                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `lib.ts`         | the options schema, the diagnostics, the package name                                                                     | the compiler, the library                   |
+| `select.ts`      | which operations are tools, and the route-to-operation lookup                                                             | the compiler, `@typespec/http`              |
+| `refusals.ts`    | what cannot be a tool, and what merely warrants a warning                                                                 | the library's types                         |
+| `names.ts`       | tool names, MCP's name rule, collisions                                                                                   | **nothing**                                 |
+| `annotations.ts` | the RFC 9110 hints                                                                                                        | **nothing**                                 |
+| `coexistence.ts` | peer emitters writing where this one writes                                                                               | the compiler                                |
+| `tools.ts`       | the text of `mcp.gen.ts`, result unions included                                                                          | the library's types, `zod`, the SDK's types |
+| `bodies.ts`      | what each response body is: JSON, text, bytes, unvalidated - the library's result members, with this route's schema names | the library                                 |
+| `runtime.ts`     | what emitted code imports at run time                                                                                     | **only what a consumer installs**           |
+| `emitter.ts`     | orchestration: run the library, select, refuse, render, write                                                             | everything above                            |
 
 ## The three rules that are enforced rather than intended
 

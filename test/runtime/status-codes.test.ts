@@ -2,7 +2,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CONTENTLESS_STATUS_CODES, STATUS_GROUPS } from "../../src/statuses.js";
+import { CONTENTLESS_STATUS_CODES, STATUS_CODES } from "typespec-http-zod";
+
+/**
+ * Hono's name for each class, which is what its declaration file spells. The codes are the library's,
+ * which owns the one table every emitter types a result from; this package no longer keeps a copy.
+ */
+const HONO_CLASS_NAMES = {
+	1: "InfoStatusCode",
+	2: "SuccessStatusCode",
+	3: "RedirectStatusCode",
+	4: "ClientErrorStatusCode",
+	5: "ServerErrorStatusCode",
+} as const;
 
 /**
  * **The status literals a result type is written from, held equal to Hono's own.**
@@ -37,7 +49,12 @@ function honoCodes(name: string): number[] {
 }
 
 describe("the emitter's status literals are Hono's", () => {
-	it.each(Object.values(STATUS_GROUPS))("$type", ({ type, codes }) => {
+	it.each(
+		([1, 2, 3, 4, 5] as const).map((digit) => ({
+			type: HONO_CLASS_NAMES[digit],
+			codes: STATUS_CODES[digit],
+		})),
+	)("$type", ({ type, codes }) => {
 		const expected = honoCodes(type);
 		// Non-vacuity: a regex that matched nothing would compare an empty list against itself.
 		expect(expected.length).toBeGreaterThanOrEqual(4);
@@ -63,10 +80,6 @@ describe("the emitter's status literals are Hono's", () => {
 			.filter((member) => member !== "UnofficialStatusCode")
 			.toSorted();
 		expect(groups.length).toBeGreaterThanOrEqual(5);
-		expect(groups).toEqual(
-			Object.values(STATUS_GROUPS)
-				.map((group) => group.type)
-				.toSorted(),
-		);
+		expect(groups).toEqual(Object.values(HONO_CLASS_NAMES).toSorted());
 	});
 });

@@ -1,14 +1,15 @@
 import {
 	jsDocComment,
+	mediaTypeTypeOf,
 	objectKey,
 	type EmittedResponse,
 	type EmittedRoute,
 	type RouteSchemaNames,
+	statusCodesOf,
 } from "typespec-http-zod";
 import { annotationsFor, type ToolAnnotations } from "./annotations.js";
-import { bodyKindsOf, bodyServingOf, isJsonMediaType, isMediaRange, membersOf } from "./bodies.js";
+import { bodyKindsOf, bodyServingOf, isJsonMediaType, membersOf } from "./bodies.js";
 import type { SecurityRequirement } from "./runtime.js";
-import { CONTENTLESS_STATUS_CODES, STATUS_GROUPS } from "./statuses.js";
 
 /**
  * **Rendering lives here, with everything else that produces text.**
@@ -208,68 +209,22 @@ function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	return `${constructor}({ ${spreads.join(", ")} })`;
 }
 
-/** The codes of the status group a range key names. */
-function groupCodesOf(status: `${1 | 2 | 3 | 4 | 5}XX`): readonly number[] {
-	return STATUS_GROUPS[Number(status.charAt(0)) as 1 | 2 | 3 | 4 | 5].codes;
-}
+/** The type of the `contentType` a tool result names for a member - the library's rule. */
+const contentTypeTypeOf = mediaTypeTypeOf;
 
 /**
- * The type of the `contentType` a handler names for a member: the sibling emitter's rule.
+ * The status a result member is typed with: the codes its response answers with, written out.
  *
- * **A range is typed as the types inside it**: `image/*` is `` `image/${string}` ``, so `text/html`
- * under it does not compile, and TypeScript still narrows a literal member away from it. Only the
- * full range is `string`.
- */
-function contentTypeTypeOf(mediaType: string): string {
-	if (!isMediaRange(mediaType)) return JSON.stringify(mediaType);
-	if (mediaType === "*/*") return "string";
-	return `\`${mediaType.slice(0, -1)}\${string}\``;
-}
-
-/**
- * A member's status as a TypeScript type: disjoint from every other member's, by construction.
- *
- * **Written as a union of literals, never as Hono's type names.** This package's output imports no
- * Hono, so where the sibling emitter writes `Exclude<ClientErrorStatusCode, 404 | ContentlessStatusCode>`
- * this writes the codes that expression resolves to, from the same sets (`statuses.ts`, held equal to
- * Hono's declaration file by test):
- *
- * - an exact code is itself;
- * - a range is its group, less every code the operation declares exactly, and less the statuses that
- *   cannot carry a body where the range has one;
- * - `default` is every official status from 2xx to 5xx, less the exact codes, less every code a
- *   declared range covers, and less the contentless statuses where it has a body.
- *
- * **Disjoint is the property that makes a wrong body a compile error**: were `default` allowed to
- * overlap a declared status, a 404 carrying the default arm's body would type-check through it.
+ * **Written out, never as Hono's group types**, because this file imports nothing from Hono. The
+ * codes are the library's `statusCodesOf`, the same rule the server emitter and the contract types
+ * read, so a tool's result and a handler's result agree member by member.
  */
 function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
-	const { status } = response;
-	if (typeof status === "number") return String(status);
-	const exact = new Set(
-		route.responses.flatMap((candidate) =>
-			typeof candidate.status === "number" ? [candidate.status] : [],
-		),
+	const codes = statusCodesOf(
+		response,
+		route.responses,
+		(candidate) => candidate.schema !== undefined,
 	);
-	const contentless = new Set<number>(
-		response.schema === undefined ? [] : CONTENTLESS_STATUS_CODES,
-	);
-	const candidates =
-		status === "default"
-			? ([2, 3, 4, 5] as const).flatMap((digit) => STATUS_GROUPS[digit].codes)
-			: groupCodesOf(status);
-	const ranged = new Set(
-		status === "default"
-			? route.responses.flatMap((candidate) =>
-					typeof candidate.status === "string" && candidate.status !== "default"
-						? groupCodesOf(candidate.status)
-						: [],
-				)
-			: [],
-	);
-	const codes = candidates
-		.filter((code) => !exact.has(code) && !ranged.has(code) && !contentless.has(code))
-		.toSorted((a, b) => a - b);
 	return codes.length === 0 ? "never" : codes.join(" | ");
 }
 

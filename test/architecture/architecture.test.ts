@@ -119,7 +119,8 @@ describe("the renderer renders, and the derivations derive", () => {
 	});
 
 	it("the pure derivations stay pure", () => {
-		for (const file of ["annotations.ts", "names.ts", "statuses.ts"]) {
+		// The status table is `typespec-http-zod`'s now, so `statuses.ts` is gone from this list.
+		for (const file of ["annotations.ts", "names.ts"]) {
 			expect(externalsOf(file), file).toEqual([]);
 		}
 		// The body kinds read the library's published response records and nothing else, so the
