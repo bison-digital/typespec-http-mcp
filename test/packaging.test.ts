@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -97,6 +98,97 @@ describe("the package declares what it needs to run outside this checkout", () =
 			}
 		}
 		expect(manifest.dependencies?.["typespec-http-zod"]).toMatch(/^\^\d+\.\d+\.\d+$/);
+	});
+
+	/**
+	 * **The resolved `typespec-http-zod` has to carry the API `src/` compiles against, and a version
+	 * range cannot say so on its own.**
+	 *
+	 * Features land in the library before the emitters that read them, and every version this range
+	 * admits but the newest may lack them. A checkout resolving such a version fails `tsc` with errors
+	 * about `RouteSchemaNames` that name nothing a reader could act on; `main` once built only because
+	 * `node_modules` held hand-made links to the sibling checkout, which nothing in the repository
+	 * recorded. This arm says it in one sentence: release the library first, and raise this floor.
+	 *
+	 * **Compiled, not matched.** Every name `src/` imports from the library is read off the import
+	 * statements themselves, and the members below are the newest ones `src/` reads, each with its
+	 * reader. A probe naming all of them is compiled against whatever resolved.
+	 */
+	it("resolves a typespec-http-zod that carries the API src/ compiles against", () => {
+		const imported = new Set<string>();
+		for (const name of sources) {
+			const text = readFileSync(join(packageRoot, name), "utf8");
+			for (const clause of text.matchAll(
+				/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"typespec-http-zod"/g,
+			)) {
+				for (const part of (clause[1] ?? "").split(",")) {
+					const symbol = part
+						.trim()
+						.replace(/^type\s+/, "")
+						.split(/\s+as\s+/)[0];
+					if (symbol !== undefined && symbol !== "") imported.add(symbol);
+				}
+			}
+		}
+		// Non-vacuity: a pattern that stopped matching would compile an empty probe.
+		expect(imported.size).toBeGreaterThanOrEqual(15);
+		expect(imported).toContain("resultMembersOf");
+
+		const members = [
+			// tools.ts, the accept a negotiated tool supplies
+			'RouteSchemaNames["selectedAccept"]',
+			// tools.ts, the cookie group merged into arguments
+			'RouteSchemaNames["cookie"]',
+			// tools.ts, a gathered query's object
+			'RouteSchemaNames["queryFields"]',
+			// refusals.ts, a raw body refused as binary
+			'EmittedRoute["rawBodyBinary"]',
+		];
+		const probeDir = join(packageRoot, "test", ".out-packaging-api");
+		mkdirSync(probeDir, { recursive: true });
+		const symbols = [...imported].toSorted();
+		writeFileSync(
+			join(probeDir, "probe.ts"),
+			`import type { ${symbols.join(", ")} } from "typespec-http-zod";
+
+export type Members = [${members.join(", ")}];
+`,
+		);
+		const config = join(probeDir, "tsconfig.json");
+		writeFileSync(
+			config,
+			JSON.stringify({
+				compilerOptions: {
+					target: "es2023",
+					module: "nodenext",
+					moduleResolution: "nodenext",
+					strict: true,
+					noEmit: true,
+					skipLibCheck: true,
+					types: [],
+				},
+				include: ["./probe.ts"],
+			}),
+		);
+		let output = "";
+		try {
+			execFileSync(
+				join(packageRoot, "node_modules", ".bin", "tsc"),
+				["-p", config, "--ignoreConfig"],
+				{
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
+		} catch (error) {
+			const asExec = error as { stdout?: string; stderr?: string };
+			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
+		}
+		const range = manifest.dependencies?.["typespec-http-zod"];
+		expect(
+			output,
+			`the resolved typespec-http-zod lacks API src/ uses; the declared range is ${range}. Release typespec-http-zod first and raise this floor.`,
+		).toBe("");
 	});
 });
 
