@@ -91,6 +91,22 @@ describe("nothing this package ships names one machine's filesystem", () => {
 		expect(offenders).toEqual([]);
 	});
 
+	/**
+	 * **Generated files cite no file of this package.** The runtime's docblocks named the tests that
+	 * grade it, `test/...test.ts`, and the runtime is copied into the consumer's tree, where those
+	 * paths do not exist: a consumer whose own guard checks that every cited file exists failed on
+	 * them. A suite is named in prose instead.
+	 */
+	it("cites no path of this package's own in anything the emitter GENERATES", () => {
+		expect(emitted.length).toBeGreaterThanOrEqual(1);
+		const cited = emitted.flatMap((file) =>
+			[...readFileSync(file, "utf8").matchAll(/\btest\/[\w./-]+\.ts\b/g)].map(
+				(match) => `${file.slice(packageRoot.length)}: ${match[0]}`,
+			),
+		);
+		expect(cited).toEqual([]);
+	});
+
 	it("emits ASCII only", () => {
 		const offenders = emitted.flatMap((file) => {
 			const text = readFileSync(file, "utf8");

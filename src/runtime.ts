@@ -7,7 +7,7 @@ import type { ZodError, ZodType } from "zod";
  * **Kept deliberately tiny, and deliberately free of every TypeSpec import.** The main entry point
  * is an emitter: it pulls in `@typespec/compiler` and exists at build time. This module is what an
  * *application* touches, and making it reach the compiler would put a build-time dependency into a
- * server's runtime graph for the sake of a few declarations. `test/packaging.test.ts` asserts the
+ * server's runtime graph for the sake of a few declarations. typespec-http-mcp's packaging suite asserts the
  * separation rather than trusting it.
  *
  * **Always emitted, never substituted.** `runtime-module` used to point the generated file at a
@@ -31,10 +31,10 @@ export type { CallToolResult, McpServer, ServerContext };
  *
  * **Declared here rather than imported from `typespec-http-zod`, deliberately.** Emitted output must
  * never import this emitter or the library it runs -- a consumer installs both as devDependencies,
- * so a runtime import of either is a broken install. `test/packaging.test.ts` asserts that. The
+ * so a runtime import of either is a broken install. typespec-http-mcp's packaging suite asserts that. The
  * emitted `schemas.gen.ts` declares the same shape locally, so it depends on no runtime at all.
  *
- * The cost is a second declaration of one shape, and `test/runtime/parity.test.ts` is what stops the
+ * The cost is a second declaration of one shape, and typespec-http-mcp's runtime parity suite is what stops the
  * two drifting: it grades this `armFor` against the library's own for every arm shape.
  *
  * **The arms arrive in OpenAPI's precedence order, so the FIRST match is the right one** -- an exact

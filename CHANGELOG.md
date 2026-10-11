@@ -42,6 +42,9 @@ retryAfter: duration` is a `number`, where it was a `string`, which is what its 
 
 ### Fixed
 
+- **The emitted runtime cites no file of this package.** Its docblocks named the tests that grade it
+  by path, and the runtime is copied into a consumer's tree, where those paths do not exist; a
+  consumer whose guard checks every cited file failed on them.
 - **The emitted runtime compiles under `erasableSyntaxOnly`.** Its error classes declared their
   fields as constructor parameter properties, which are not erasable syntax, so a project building
   with that flag had to turn it off. The corpus is typechecked with it, and with
