@@ -1,6 +1,6 @@
 {
 	"name": "typespec-http-mcp",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "TypeSpec emitter: generate an MCP tool surface, and the Zod validators it publishes, from an HTTP service definition, dispatching into the same handlers a generated HTTP server calls.",
 	"keywords": [
 		"cloudflare-workers",
@@ -54,7 +54,7 @@
 		"format:check": "oxfmt --check"
 	},
 	"dependencies": {
-		"typespec-http-zod": "^0.26.0"
+		"typespec-http-zod": "^0.28.0"
 	},
 	"devDependencies": {
 		"@hono/zod-validator": "^0.9.1",
@@ -76,7 +76,7 @@
 		"oxfmt": "^0.67.0",
 		"oxlint": "^1.82.0",
 		"typescript": "~7.0.2",
-		"typespec-hono": "0.23.0",
+		"typespec-hono": "0.25.0",
 		"typespec-http-mcp": "link:.",
 		"vitest": "^5.0.0",
 		"wrangler": "^4.131.1",

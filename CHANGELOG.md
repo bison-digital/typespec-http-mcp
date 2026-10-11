@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-10-11
 
 Upgrading: [what to check before you take this](docs/guides.md#to-020).
 
