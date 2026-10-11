@@ -16,7 +16,9 @@ new corpus arm hold every tool signature identical to the server handler's.
 - **A binary result body is `ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer`**, where it was
   `ReadableStream | ...`. `ByteStream` is exported from `mcp-runtime.gen.ts` and is the same type
   `requests.gen.ts` and `typespec-hono`'s runtime declare. A platform `ReadableStream` still
-  satisfies it, so a handler returning one compiles as before.
+  satisfies it, so a handler returning one compiles as before. Any such stream is read through its
+  reader: a read reporting no chunk is read past, and a stream refused for a chunk that is not bytes
+  is cancelled as well as released.
 - **An empty model contributes `{}` to a handler's input**, not `unknown`, as the server types it.
 - **A tool on a negotiated route hands its handler `accept`.** On a route several operations share,
   the server's handler receives its operation's `accept` literal; the tool's did not, so one handler

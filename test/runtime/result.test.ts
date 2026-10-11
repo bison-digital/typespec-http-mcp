@@ -420,13 +420,17 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 		expect(released).toBe(1);
 	});
 
-	it("refuses a stream whose chunk is not bytes, and releases it", async () => {
+	it("refuses a stream whose chunk is not bytes, cancels it and releases it", async () => {
 		let released = 0;
+		let cancelled = false;
 		const stream = {
 			getReader: () => ({
 				read: async () => ({ done: false, value: "not bytes" }),
 				releaseLock: () => {
 					released += 1;
+				},
+				cancel: async () => {
+					cancelled = true;
 				},
 			}),
 		};
@@ -434,6 +438,21 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 			ResponseContractError,
 		);
 		expect(released).toBe(1);
+		// The producer is told it will not be read further, not only abandoned.
+		expect(cancelled).toBe(true);
+	});
+
+	/** A read may report no chunk and not be done, which `ByteStream` admits: it carries nothing. */
+	it("reads past a read that carries no chunk", async () => {
+		const reads = [{ done: false }, { done: false, value: png }, { done: true }];
+		const stream = {
+			getReader: () => ({
+				read: async () => reads.shift() ?? { done: true },
+				releaseLock: () => {},
+			}),
+		};
+		const result = await toolResult(image, "png", { status: 200, body: stream });
+		expect(result.content).toEqual([{ type: "image", data: pngBase64, mimeType: "image/png" }]);
 	});
 
 	it("names the media type the handler chose inside a range", async () => {

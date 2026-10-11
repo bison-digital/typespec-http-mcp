@@ -211,6 +211,7 @@ export interface ByteStream {
 	getReader(): {
 		read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array | undefined }>;
 		releaseLock(): void;
+		cancel?(reason?: unknown): Promise<void>;
 	};
 }
 
@@ -233,7 +234,13 @@ async function bytesOf(body: unknown): Promise<Uint8Array | undefined> {
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			if (!(value instanceof Uint8Array)) return undefined;
+			// A read may report no chunk and not be done, which `ByteStream` admits; it carries nothing.
+			if (value === undefined) continue;
+			if (!(value instanceof Uint8Array)) {
+				// Refused part-way, so the producer is told it will not be read further.
+				await reader.cancel?.(value);
+				return undefined;
+			}
 			chunks.push(value);
 			length += value.byteLength;
 		}
