@@ -17,7 +17,6 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const PREFIX = "typespec-http-mcp/";
 
 let codes: string[] = [];
-let diagnostics: readonly { readonly code: string; readonly severity: string }[] = [];
 let compiledMessages: readonly { readonly code: string; readonly message: string }[] = [];
 let toolNames: string[] = [];
 let outDir = "";
@@ -26,7 +25,6 @@ let emitted = "";
 beforeAll(async () => {
 	const compiled = await compileFixture(here, "refusals", { outName: "refusals" });
 	codes = compiled.diagnostics.map((d) => d.code);
-	diagnostics = compiled.diagnostics;
 	compiledMessages = compiled.messages;
 	outDir = compiled.outDir;
 	emitted = readFileSync(join(outDir, "mcp.gen.ts"), "utf8");
@@ -53,6 +51,13 @@ describe("refusals remove the operation from the surface", () => {
 		expect(toolNames).not.toContain("uploadBytes");
 	});
 
+	it("refuses a model under a media type that is not text, which is bytes", () => {
+		expect(
+			compiledMessages.filter((d) => d.message.startsWith("'uploadBlob'")).map((d) => d.code),
+		).toContain(`${PREFIX}binary-tool-input`);
+		expect(toolNames).not.toContain("uploadBlob");
+	});
+
 	it("refuses a multipart body", () => {
 		expect(toolNames).not.toContain("uploadForm");
 	});
@@ -75,9 +80,9 @@ describe("refusals remove the operation from the surface", () => {
 /**
  * **What a response body can be as a tool result, decided per operation.**
  *
- * A tool result is content blocks: text, JSON, an `image` block or an `audio` block. A stream is not
- * one message, and bytes of any other media type have no block. Each is refused where it is declared,
- * and the arms below prove the refusal is exact: an image is kept.
+ * A tool result is content blocks: text, JSON, an `image` or `audio` block, or an embedded resource,
+ * which carries bytes of any other media type. A stream is not one message, so it is refused where it
+ * is declared, and the arms below prove the refusal is exact: bytes of every type are kept.
  */
 describe("a response a tool result cannot carry removes the operation", () => {
 	/** The diagnostics raised against one operation, read from the message the compiler formatted. */
@@ -88,14 +93,11 @@ describe("a response a tool result cannot carry removes the operation", () => {
 			.toSorted();
 	}
 
-	it("refuses bytes served as application/octet-stream", () => {
-		expect(codesFor("downloadBytes")).toContain(`${PREFIX}binary-tool-output`);
-		expect(toolNames).not.toContain("downloadBytes");
-	});
-
-	it("refuses bytes offered as an image AND as an octet stream, because either may be answered", () => {
-		expect(codesFor("downloadEither")).toContain(`${PREFIX}binary-tool-output`);
-		expect(toolNames).not.toContain("downloadEither");
+	it("keeps bytes of any media type, which an embedded resource carries", () => {
+		for (const operationId of ["downloadBytes", "downloadEither", "downloadBlob"]) {
+			expect(toolNames).toContain(operationId);
+			expect(codesFor(operationId).filter((code) => code.endsWith("-tool-output"))).toEqual([]);
+		}
 	});
 
 	it("refuses a server-sent event stream", () => {
@@ -109,24 +111,24 @@ describe("a response a tool result cannot carry removes the operation", () => {
 		expect(codesFor("thumbnail").filter((code) => code.endsWith("-tool-output"))).toEqual([]);
 		expect(codesFor("note")).toEqual([]);
 	});
-
-	it("names the offending media types in the diagnostic", () => {
-		const message = compiledMessages.find((d) => d.message.startsWith("'downloadEither'"))?.message;
-		expect(message).toContain("application/octet-stream");
-		expect(message).not.toContain("image/png");
-	});
 });
 
 describe("a body answered unvalidated is warned about, and the tool kept", () => {
-	it("warns about a model served as application/xml, naming the status and the type", () => {
-		const warning = compiledMessages.find(
-			(d) => d.code === `${PREFIX}unvalidated-response-media-type`,
-		);
-		expect(warning?.message).toContain("'itemXml' answers 200 as application/xml");
+	/**
+	 * **A model is unchecked as text and as bytes alike**: as `application/xml` the handler writes
+	 * the text, as `application/octet-stream` the bytes, and nothing checks either against the schema.
+	 */
+	it("warns about a model served as application/xml or as bytes, naming the status and the type", () => {
+		const warned = compiledMessages
+			.filter((d) => d.code === `${PREFIX}unvalidated-response-media-type`)
+			.map((d) => d.message);
+		expect(warned).toHaveLength(2);
+		expect(warned.some((m) => m.startsWith("'itemXml' answers 200 as application/xml"))).toBe(true);
 		expect(
-			diagnostics.filter((d) => d.code === `${PREFIX}unvalidated-response-media-type`),
-		).toEqual([{ code: `${PREFIX}unvalidated-response-media-type`, severity: "warning" }]);
+			warned.some((m) => m.startsWith("'downloadBlob' answers 200 as application/octet-stream")),
+		).toBe(true);
 		expect(toolNames).toContain("itemXml");
+		expect(toolNames).toContain("downloadBlob");
 	});
 });
 
@@ -142,15 +144,22 @@ describe("the body kinds reach the runtime, and only where one applies", () => {
 		return call?.[1] ?? "";
 	}
 
-	it("tells the runtime an image body is binary and a text body is text", () => {
-		expect(declaredFor("thumbnail")).toContain('bodies: { "200": "binary" }');
-		expect(declaredFor("note")).toContain('bodies: { "200": "text" }');
+	it("tells the runtime, by media type, an image body is binary and a text body is text", () => {
+		expect(declaredFor("thumbnail")).toContain('bodies: { "200": { "image/png": "binary" } }');
+		expect(declaredFor("note")).toContain('bodies: { "200": { "text/plain": "text" } }');
+	});
+
+	it("tells the runtime a model under a media type that is not text is bytes", () => {
+		expect(declaredFor("downloadBlob")).toContain(
+			'bodies: { "200": { "application/octet-stream": "binary" } }',
+		);
 	});
 
 	it("writes no entry for a JSON body or for a model served as unvalidated text", () => {
 		expect(declaredFor("listItems")).not.toContain("bodies");
 		expect(declaredFor("itemXml")).not.toContain("bodies");
-		expect([...emitted.matchAll(/bodies: \{/g)]).toHaveLength(2);
+		// thumbnail, note, and the three downloads of bytes or of a model as bytes.
+		expect([...emitted.matchAll(/bodies: \{/g)]).toHaveLength(5);
 	});
 });
 
@@ -185,7 +194,7 @@ describe("the invariant holds, and the output still compiles", () => {
 				(kind) => code === `${PREFIX}${kind}`,
 			),
 		);
-		expect(refusals.length).toBeGreaterThanOrEqual(6);
+		expect(refusals.length).toBeGreaterThanOrEqual(5);
 		expect(toolNames.length).toBeGreaterThanOrEqual(4);
 	});
 

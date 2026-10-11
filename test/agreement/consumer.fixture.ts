@@ -52,9 +52,9 @@ declare const reader: ToolByteStream;
  * platform one, and one that is only a reader, as a backend's contract value is - and a model the
  * handler serialises to XML. An optional body is read as absent by leaving the key out.
  *
- * `WidgetTools_archive` answers bytes no tool result can carry, so the tool surface refuses it and the
- * HTTP surface serves it. It is still in this ONE object: `registerTools` accepts a handler for an
- * operation the document declares and the tool surface does not.
+ * `WidgetTools_restore` takes bytes no tool argument can carry, so the tool surface refuses it and
+ * the HTTP surface serves it. It is still in this ONE object: `registerTools` accepts a handler for
+ * an operation the document declares and the tool surface does not.
  */
 const operations = {
 	reindex: (_ctx: Caller, _input) => ({ status: 204 }),
@@ -102,6 +102,8 @@ const operations = {
 		body: `<widget><id>${input.widgetId}</id></widget>`,
 	}),
 	WidgetTools_archive: (_ctx: Caller, _input) => ({ status: 200, body: new Uint8Array([1, 2, 3]) }),
+	WidgetTools_restore: (_ctx: Caller, _input) => ({ status: 204 }),
+	WidgetTools_packed: (_ctx: Caller, _input) => ({ status: 200, body: new Uint8Array([4, 5]) }),
 	WidgetTools_summaryAsText: (_ctx: Caller, input) => ({
 		status: 200,
 		body: `${input.widgetId} as ${input.accept}`,
@@ -151,7 +153,7 @@ type MustHold<T extends true> = T;
  * `Tools` rather than present with another signature. A refusal that left a key behind would let a
  * handler compile against a tool nobody registers.
  */
-type Refused = "WidgetTools_archive";
+type Refused = "WidgetTools_restore";
 type _Keys = MustHold<Identical<keyof Tools<Caller>, Exclude<keyof Operations<Caller>, Refused>>>;
 type _Refused = MustHold<Identical<Extract<keyof Tools<Caller>, Refused>, never>>;
 type _Reindex = MustHold<Identical<Tools<Caller>["reindex"], Operations<Caller>["reindex"]>>;
@@ -170,6 +172,12 @@ type _Replace = MustHold<
 >;
 type _Picture = MustHold<
 	Identical<Tools<Caller>["WidgetTools_picture"], Operations<Caller>["WidgetTools_picture"]>
+>;
+type _Archive = MustHold<
+	Identical<Tools<Caller>["WidgetTools_archive"], Operations<Caller>["WidgetTools_archive"]>
+>;
+type _Packed = MustHold<
+	Identical<Tools<Caller>["WidgetTools_packed"], Operations<Caller>["WidgetTools_packed"]>
 >;
 type _Photo = MustHold<
 	Identical<Tools<Caller>["WidgetTools_photo"], Operations<Caller>["WidgetTools_photo"]>
@@ -205,6 +213,7 @@ type _MarkSeen = MustHold<
 type _OneByteStream = MustHold<Identical<ToolByteStream, ByteStream>>;
 
 export type {
+	_Archive,
 	_AsXml,
 	_Create,
 	_Health,
@@ -213,6 +222,7 @@ export type {
 	_List,
 	_MarkSeen,
 	_OneByteStream,
+	_Packed,
 	_Photo,
 	_Picture,
 	_Preferences,

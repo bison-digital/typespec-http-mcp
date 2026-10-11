@@ -210,22 +210,6 @@ const diagnostics = {
 		},
 	},
 	/**
-	 * A response body an MCP tool result cannot carry, because it is raw bytes with no content block.
-	 *
-	 * A tool result is content blocks. MCP has an `image` and an `audio` block, each carrying base64
-	 * data and its media type, and those are what an `image/*` or `audio/*` body becomes. Any other
-	 * binary body -- `application/octet-stream`, a PDF -- could only be an embedded resource, and a
-	 * resource needs a URI the document never states. **Refused rather than approximated**: base64 in
-	 * a text block would publish an encoding no reader of the document could predict, and would put a
-	 * whole download through a model's context window.
-	 */
-	"binary-tool-output": {
-		severity: "warning",
-		messages: {
-			default: paramMessage`'${"operationId"}' answers with a binary body (${"types"}) that no MCP content block carries: a tool result is text, JSON, an 'image/*' block or an 'audio/*' block. Exclude it with 'exclude-tags', or declare an image or audio media type, or a JSON body, for the tool surface.`,
-		},
-	},
-	/**
 	 * A streamed response, which a tool result cannot be.
 	 *
 	 * An SSE or JSONL response is unbounded and arrives over time; a tool call answers with one message.
@@ -249,7 +233,7 @@ const diagnostics = {
 	"unvalidated-response-media-type": {
 		severity: "warning",
 		messages: {
-			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text and the tool answers it without validating it. Declare a JSON media type, or a string body, to have it checked.`,
+			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text, or as bytes under a media type that is not text, and the tool answers it without validating it. Declare a JSON media type, or a string body, to have it checked.`,
 		},
 	},
 	/**
@@ -358,7 +342,6 @@ type Diagnostics = {
 	"binary-tool-input": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-object-body": { readonly default: CallableMessage<["operationId", "types"]> };
-	"binary-tool-output": { readonly default: CallableMessage<["operationId", "types"]> };
 	"streamed-tool-output": { readonly default: CallableMessage<["operationId", "types"]> };
 	"unvalidated-response-media-type": {
 		readonly default: CallableMessage<["operationId", "status", "types"]>;

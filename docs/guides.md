@@ -243,11 +243,16 @@ a `@pattern` is matched with the Unicode flag.
 - A response header declared with `@encode` is its encoded type: `number` for
   `@encode(DurationKnownEncoding.seconds, int32)`.
 
-**An `Http.File` operation is a tool only where a tool can carry the file.** A download under an
-image or audio type is answered as that block; under any other type, and as an upload, it is refused
-and leaves `TOOL_NAMES` and `Tools`. Such tools answered nothing and dropped uploads in `0.1.0`. A
-handler object written to `satisfies Tools` drops the handler for each one; one written to
-`satisfies Operations` and passed to `registerTools` needs no change.
+**Bytes under any media type are a tool result.** Under an image or audio type they are that block,
+as before; under any other, such as `application/pdf` or `application/octet-stream`, an embedded
+resource, `{ type: "resource", resource: { uri, mimeType, blob } }`, where `0.1.0` refused the
+operation with `binary-tool-output`. That diagnostic is gone, and those operations join `TOOL_NAMES`
+and `Tools`: a handler object written to `satisfies Tools` needs a handler for each; one written to
+`satisfies Operations` and passed to `registerTools` already has one.
+
+**An `Http.File` upload is not a tool**, and is refused with `binary-tool-input`, where `0.1.0`
+published it as a tool that dropped the file. A download is a tool under any media type, as bytes
+are. A model under a media type that is neither JSON nor text is bytes too, in both directions.
 
 **Each operation on a shared route is described and selected as itself**, so its tool may gain the
 description it always declared, and `tool-tags` may now select or exclude it on its own tags.

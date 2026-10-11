@@ -85,7 +85,9 @@ generated callback hands it to `toolResult`:
 | a string body under a media type that is not JSON        | parsed against its schema, and the parsed string as a `text` block                                   |
 | bytes under an `image/*` media type                      | an `image` block: `{ type: "image", data: <base64>, mimeType }`                                      |
 | bytes under an `audio/*` media type                      | an `audio` block: `{ type: "audio", data: <base64>, mimeType }`                                      |
-| a model under a media type that is not JSON              | the text the handler supplied, unvalidated; anything but a string throws                             |
+| bytes under any other media type, a file's JSON included | an embedded resource: `{ type: "resource", resource: { uri, mimeType, blob: <base64> } }`            |
+| a model under a textual media type that is not JSON      | the text the handler supplied, unvalidated; anything but a string throws                             |
+| a model under a media type that is neither JSON nor text | its bytes, unvalidated, answered as bytes are above                                                  |
 | a response with no body                                  | `content: []`                                                                                        |
 | a 4xx or 5xx status                                      | `isError: true`                                                                                      |
 | a body whose schema is the `outputSchema`                | the parsed body as `structuredContent` too                                                           |
@@ -100,8 +102,17 @@ result is one message, and a chunk that is not a `Uint8Array` throws `ResponseCo
 `contentType` where the status offers several or a range, otherwise the one it offers.
 
 The runtime cannot tell a string, bytes and a serialised model apart from an arm, so the generated
-call passes `bodies` beside the arms, keyed by status, only for the statuses that answer text or
-bytes: `{ arms: pictureResponses, outputSchema: undefined, bodies: { "200": "binary" } }`.
+call passes `bodies` beside the arms, keyed by status and by media type, only where a body is text or
+bytes: `{ arms: pictureResponses, outputSchema: undefined, bodies: { "200": { "image/png": "binary" } } }`.
+By media type as well as status, because one status may offer a model as XML, the text a handler
+writes, and as `application/octet-stream`, its bytes.
+
+**An embedded resource's `uri` is `resource://tool-response/<operationId>`, which nothing resolves.**
+The specification requires the `uri`, and lets a tool embed a resource "using a suitable URI scheme",
+a custom one allowed where it follows RFC 3986; it does not ask that `resources/read` answer it. The
+bytes are one call's answer, so the server lists and reads no resources and declares no `resources`
+capability, which the specification asks for with a SHOULD. Stainless's MCP servers name such a body
+`resource://tool-response`; this names the operation as well.
 
 A thrown error reaches the SDK, which answers the call as a tool-execution error carrying its message.
 
@@ -125,13 +136,12 @@ something a tool call cannot carry. The operation is still in the sibling server
 one handler object serves both: `registerTools` accepts a handler for any operation the document
 declares.
 
-| the document declares                                             | refusal                |
-| ----------------------------------------------------------------- | ---------------------- |
-| a raw or multipart request body                                   | `binary-tool-input`    |
-| only request media types that are not JSON                        | `non-json-request`     |
-| a request body with no properties to merge into arguments         | `non-object-body`      |
-| a streamed response: server-sent events, JSONL                    | `streamed-tool-output` |
-| a binary response under a type that is not `image/*` or `audio/*` | `binary-tool-output`   |
+| the document declares                                     | refusal                |
+| --------------------------------------------------------- | ---------------------- |
+| a raw or multipart request body                           | `binary-tool-input`    |
+| only request media types that are not JSON                | `non-json-request`     |
+| a request body with no properties to merge into arguments | `non-object-body`      |
+| a streamed response: server-sent events, JSONL            | `streamed-tool-output` |
 
 ## Openness: what a tool advertises about unknown arguments
 
@@ -229,21 +239,6 @@ context window.
 
 Remedy: exclude the operation with `exclude-tags`, or declare a JSON-bodied operation for the tool
 surface.
-
-### `binary-tool-output`
-
-A response body is raw bytes under a media type MCP has no content block for, such as
-`application/octet-stream` or `application/pdf`. A tool result is `text`, `image` and `audio` blocks,
-and structured content.
-
-**Refused rather than approximated.** Bytes of any other type could only be an embedded resource, and
-a resource needs a URI the document never states. Base64 in a text block would publish an encoding no
-reader of the document could predict, and would push a whole download through a model's context
-window. Refused where ANY declared response offers such a type, because a handler may answer with any
-of them: `image/png | application/octet-stream` is refused.
-
-Remedy: exclude the operation with `exclude-tags`, or declare an `image/*` or `audio/*` media type, or
-a JSON body, for the tool surface.
 
 ### `streamed-tool-output`
 

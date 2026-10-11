@@ -21,14 +21,6 @@ import {
  */
 
 /**
- * A media type MCP has a content block for: `image/*` and `audio/*`, which carry base64 data and
- * the media type itself. A wildcard within one is a type the handler names when it answers.
- */
-export function hasContentBlock(type: string): boolean {
-	return /^(image|audio)\/[^/]+$/.test(type);
-}
-
-/**
  * One member of a tool's result: the library's member, with the identifier this route's schema for
  * that body is declared under.
  *
@@ -49,11 +41,10 @@ export function membersOf(route: EmittedRoute, names: RouteSchemaNames): ResultM
 export { isJsonMediaType };
 
 /**
- * How the runtime answers a status's body under a media type that is not JSON, where that is not the
- * unvalidated text a handler supplies.
+ * How the runtime answers a body where its media type does not say.
  *
  * - `"text"`: a string body, parsed against its schema and answered as a text block;
- * - `"binary"`: raw bytes, answered as an `image` or `audio` block.
+ * - `"binary"`: raw bytes, answered as an `image` or `audio` block, or as an embedded resource.
  *
  * A body served as JSON needs no entry, because the served media type says so; nor does unvalidated
  * text, which is what a non-JSON body with no entry is.
@@ -62,21 +53,22 @@ export type BodyKind = "text" | "binary";
 
 /**
  * The body kinds an operation's runtime needs, keyed by the arm's status key as `schemas.gen.ts`
- * writes it (`"200"`, `"4XX"`, `"default"`), and only where one applies.
+ * writes it (`"200"`, `"4XX"`, `"default"`) and the media type as declared, and only where one
+ * applies.
  *
- * **Per status, not per media type, and that loses nothing.** The library decides `binary` and
- * `textual` per response: `binary` only where EVERY media type is non-JSON, `textual` from the body's
- * type. So every non-JSON media type a status offers has the same kind, and JSON is read off the
- * served type itself.
+ * **Read off the library's members, one per status and media type.** A status may offer one model as
+ * XML, the text a handler writes, and as `application/octet-stream`, its bytes; a kind per status
+ * could not say both. A file declared `application/json` is bytes, so it has an entry too.
  */
-export function bodyKindsOf(route: EmittedRoute): readonly (readonly [string, BodyKind])[] {
-	return route.responses.flatMap((response): (readonly [string, BodyKind])[] => {
-		if (response.schema === undefined || response.streamed) return [];
-		const offersNonJson = response.contentTypes.some((type) => !isJsonMediaType(type));
-		if (!offersNonJson) return [];
-		if (response.binary) return [[String(response.status), "binary"]];
-		return response.textual ? [[String(response.status), "text"]] : [];
-	});
+export function bodyKindsOf(
+	route: EmittedRoute,
+	names: RouteSchemaNames,
+): readonly (readonly [string, string, BodyKind])[] {
+	return membersOf(route, names).flatMap((member): (readonly [string, string, BodyKind])[] =>
+		member.mediaType !== undefined && (member.serving === "text" || member.serving === "binary")
+			? [[String(member.response.status), member.mediaType, member.serving]]
+			: [],
+	);
 }
 
 /** Each status whose body under some media type is answered unvalidated, with those media types. */
@@ -87,7 +79,7 @@ export function unvalidatedResponsesOf(
 	const members = membersOf(route, names);
 	return route.responses.flatMap((response) => {
 		const types = members
-			.filter((member) => member.response === response && member.serving === "unvalidated")
+			.filter((member) => member.response === response && member.unvalidated)
 			.flatMap((member) => (member.mediaType === undefined ? [] : [member.mediaType]));
 		return types.length === 0 ? [] : [{ status: response.status, types }];
 	});

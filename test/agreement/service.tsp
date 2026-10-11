@@ -155,10 +155,24 @@ interface WidgetTools {
     @body body: Widget;
   };
 
-  /** Every widget, as one archive: bytes no MCP content block carries. */
+  /** Every widget, as one archive: bytes no image or audio block carries, so an embedded resource. */
   @route("/archive") @get archive(): {
     @header contentType: "application/octet-stream";
     @body body: bytes;
+  };
+
+  /** Restore every widget from an archive: bytes a tool argument cannot carry, so not a tool. */
+  @route("/archive") @put restore(
+    @header contentType: "application/octet-stream",
+    @body body: bytes,
+  ): {
+    @statusCode statusCode: 204;
+  };
+
+  /** A widget as the handler packs it: a model under a media type that is not text, so its bytes. */
+  @route("/{widgetId}/packed") @get packed(@path widgetId: string): {
+    @header contentType: "application/octet-stream";
+    @body body: Widget;
   };
 
   /** A widget's summary as text: one of two operations on one route, chosen by `accept`. */

@@ -45,6 +45,8 @@ beforeAll(async () => {
 
 /** A few bytes with a PNG signature, which is all an image block needs to carry. */
 const PICTURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** Not valid UTF-8: decoded as text anywhere on the way, these would come back changed. */
+const ARCHIVE = new Uint8Array([0xff, 0x00, 0x80, 0xfe]);
 
 /**
  * A stream that is a reader and nothing more: what a backend typed by the framework-free contract may
@@ -125,6 +127,8 @@ function handlersFor(): Record<string, unknown> {
 			},
 		}),
 		WidgetTools_photo: () => ({ status: 200, contentType: "image/png", body: PICTURE }),
+		WidgetTools_archive: () => ({ status: 200, body: ARCHIVE }),
+		WidgetTools_packed: () => ({ status: 200, body: ARCHIVE }),
 		WidgetTools_label: () => ({ status: 200, body: "widget one" }),
 		WidgetTools_remove: () => ({ status: 204 }),
 	};
@@ -341,6 +345,31 @@ describe("a real client, over the wire, against emitted output", () => {
 		expect(json.result.content).toEqual([
 			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/png" },
 		]);
+	});
+
+	/**
+	 * **Bytes no image or audio block carries are an embedded resource**: the blob, its media type, and
+	 * a URI naming the operation's response, which nothing resolves and the specification does not ask
+	 * to. Not valid UTF-8, so a body read as text would not survive the trip.
+	 */
+	it("answers bytes under any other media type as an embedded resource, over the wire", async () => {
+		for (const name of ["WidgetTools_archive", "WidgetTools_packed"]) {
+			const { json } = await rpc(BEARER, "tools/call", {
+				name,
+				arguments: name === "WidgetTools_packed" ? { widgetId: "1" } : {},
+			});
+			expect(json.result.isError, JSON.stringify(json)).toBeUndefined();
+			expect(json.result.content).toEqual([
+				{
+					type: "resource",
+					resource: {
+						uri: `resource://tool-response/${name}`,
+						mimeType: "application/octet-stream",
+						blob: Buffer.from(ARCHIVE).toString("base64"),
+					},
+				},
+			]);
+		}
 	});
 
 	/**

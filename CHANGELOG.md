@@ -9,13 +9,23 @@ new corpus arm hold every tool signature identical to the server handler's.
 
 ### Changed, breaking
 
-- **An `Http.File` operation is a tool only where a tool can carry the file.** A download is answered
-  as the `image` or `audio` block its media type names, and refused with `binary-tool-output` under
-  any other type; an upload is refused with `binary-tool-input`, where an upload declared only under
-  a type that is not JSON was refused as `non-json-request`. 0.1.0 published such operations as
-  tools that answered `content: []` and dropped the uploaded file. Removed from `TOOL_NAMES` and
-  `Tools`, so a handler object that `satisfies` `Tools` and names one no longer compiles; one that
-  `satisfies` the server's `Operations` and is passed to `registerTools` still does.
+- **Bytes under any media type are a tool result, and `binary-tool-output` is removed.** Under an
+  `image/*` or `audio/*` type they are that block; under any other, such as `application/pdf` or
+  `application/octet-stream`, an embedded resource: `{ type: "resource", resource: { uri, mimeType,
+blob } }`, its `uri` `resource://tool-response/<operationId>`. The specification requires a URI and
+  does not require that it resolve, and lets a tool embed a resource under a custom scheme (PR 415
+  made that its intent). 0.1.0 refused such an operation with `binary-tool-output`; it joins
+  `TOOL_NAMES` and `Tools`, so a handler object that `satisfies` `Tools` needs a handler for it. One
+  that `satisfies` the server's `Operations` and is passed to `registerTools` already has one.
+- **An `Http.File` download is a tool, and an upload is not.** A download is bytes under its media
+  type, answered as above; a file declared `application/json` is bytes too, and was serialised as a
+  JSON object of numbered keys. An upload is refused with `binary-tool-input`, where an upload
+  declared only under a type that is not JSON was refused as `non-json-request`. 0.1.0 published
+  every file operation as a tool that answered `content: []` and dropped the uploaded file, so a
+  handler object that `satisfies` `Tools` and names an upload no longer compiles.
+- **A model under a media type that is neither JSON nor text is bytes**, from `typespec-http-zod`
+  0.28.0: a result answered as an embedded resource, and a request body refused with
+  `binary-tool-input`, where it was taken as a string argument and answered as text.
 - **A response header declared with `@encode` takes its encoded type**: `@encode(seconds, int32)
 retryAfter: duration` is a `number`, where it was a `string`, which is what its schema checks.
 - **The validators move from `typespec-http-zod` 0.26.0 to 0.28.0**, so 0.27.0's changes arrive too:
@@ -42,6 +52,10 @@ retryAfter: duration` is a `number`, where it was a `string`, which is what its 
 
 ### Fixed
 
+- **A JSON response declared with a parameter or in capitals is answered as JSON.** The runtime
+  compared `application/json; charset=utf-8` as a whole string, so it took the body for text the
+  handler supplies and refused the model it returned. It compares the media type's essence, as the
+  library and the sibling server do.
 - **The emitted runtime cites no file of this package.** Its docblocks named the tests that grade it
   by path, and the runtime is copied into a consumer's tree, where those paths do not exist; a
   consumer whose guard checks every cited file failed on them.

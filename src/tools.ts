@@ -503,11 +503,17 @@ export function renderTools(
 			 * The body kinds the runtime cannot read off an arm, only where one applies: a JSON body is
 			 * known from its media type, and most operations answer nothing else.
 			 */
-			const kinds = bodyKindsOf(entry.route);
+			const kinds = new Map<string, string[]>();
+			for (const [status, mediaType, kind] of bodyKindsOf(entry.route, entry.names)) {
+				kinds.set(status, [
+					...(kinds.get(status) ?? []),
+					`${JSON.stringify(mediaType)}: ${JSON.stringify(kind)}`,
+				]);
+			}
 			const bodies =
-				kinds.length === 0
+				kinds.size === 0
 					? ""
-					: `, bodies: { ${kinds.map(([status, kind]) => `${JSON.stringify(status)}: ${JSON.stringify(kind)}`).join(", ")} }`;
+					: `, bodies: { ${[...kinds].map(([status, byType]) => `${JSON.stringify(status)}: { ${byType.join(", ")} }`).join(", ")} }`;
 			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${published ?? "undefined"}${bodies} }`;
 			/**
 			 * **A parameterless tool must not DECLARE an argument it never reads.**

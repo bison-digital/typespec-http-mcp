@@ -1,7 +1,7 @@
 import { getDiscriminator, type Program, type Type } from "@typespec/compiler";
 import type { HttpOperation } from "@typespec/http";
 import type { EmittedRoute, RouteSchemaNames } from "typespec-http-zod";
-import { hasContentBlock, unvalidatedResponsesOf } from "./bodies.js";
+import { unvalidatedResponsesOf } from "./bodies.js";
 
 /**
  * What this emitter cannot express as a tool, and what it can express but should warn about.
@@ -26,8 +26,7 @@ export type Refusal =
 	| { readonly kind: "binary-tool-input"; readonly types: string }
 	| { readonly kind: "non-json-request"; readonly types: string }
 	| { readonly kind: "non-object-body"; readonly types: string }
-	| { readonly kind: "streamed-tool-output"; readonly types: string }
-	| { readonly kind: "binary-tool-output"; readonly types: string };
+	| { readonly kind: "streamed-tool-output"; readonly types: string };
 
 /**
  * Whether a request body can be MERGED into a tool's argument object.
@@ -135,23 +134,6 @@ export function refusalFor(
 			kind: "streamed-tool-output",
 			types: streamed.flatMap((response) => response.contentTypes).join(", ") || "a stream",
 		};
-	}
-
-	/**
-	 * **Raw bytes are a tool result only where MCP has a block for them.** An `image/*` or `audio/*`
-	 * body is answered as an `image` or `audio` content block, which carries the data and its media
-	 * type. Any other binary body -- `application/octet-stream`, a PDF -- could only be an embedded
-	 * resource, and a resource needs a URI the document never states. Base64-ing the bytes into a text
-	 * block would put a download through a model's context window under an encoding nothing published.
-	 * Refused if ANY declared response offers such a type, because a handler may answer with any of
-	 * them.
-	 */
-	const unanswerable = route.responses
-		.filter((response) => response.binary)
-		.flatMap((response) => response.contentTypes)
-		.filter((type) => !hasContentBlock(type));
-	if (unanswerable.length > 0) {
-		return { kind: "binary-tool-output", types: [...new Set(unanswerable)].join(", ") };
 	}
 	return undefined;
 }

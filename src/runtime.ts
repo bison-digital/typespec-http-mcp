@@ -85,21 +85,27 @@ export interface ToolResponses {
 	 */
 	readonly outputSchema: ZodType | undefined;
 	/**
-	 * How a body is answered under a media type that is not JSON, keyed by the arm's status key
-	 * (`"200"`, `"4XX"`, `"default"`), and present only where one applies.
+	 * How a body is answered where its media type does not say, keyed by the arm's status key
+	 * (`"200"`, `"4XX"`, `"default"`) and then by the media type as the arm declares it, and present
+	 * only where one applies.
 	 *
 	 * **Carried because an arm cannot say it.** The arm names the media types and the schema, and
 	 * neither tells a string body apart from raw bytes or from a model the handler serialised: an
 	 * `image/png` body and an `application/xml` one both arrive as a schema and a non-JSON type. The
-	 * emitter knows, from what the document declares the body to be.
+	 * emitter knows, from what the document declares the body to be. **By media type as well as by
+	 * status**, because one status may offer one model as XML, the text the handler writes, and as
+	 * `application/octet-stream`, its bytes.
 	 *
 	 * - `"text"`: a string, parsed against the arm's schema and answered as a `text` block;
-	 * - `"binary"`: raw bytes, answered as an `image` or `audio` block.
+	 * - `"binary"`: raw bytes, answered as an `image` or `audio` block, or as an embedded resource
+	 *   under any other type, a file declared `application/json` included.
 	 *
-	 * A status with no entry answers a non-JSON body as the text the handler supplied, unvalidated. A
-	 * body served as JSON needs no entry, because the served media type says so.
+	 * A media type with no entry answers a JSON body as JSON, and any other body as the text the
+	 * handler supplied, unvalidated.
 	 */
-	readonly bodies?: { readonly [status: string]: "text" | "binary" };
+	readonly bodies?: {
+		readonly [status: string]: { readonly [mediaType: string]: "text" | "binary" };
+	};
 }
 
 /**
@@ -156,9 +162,13 @@ export class UndeclaredStatusError extends Error {
 	}
 }
 
-/** A media type whose body is a JSON value. The rule the library and the server emitter apply. */
+/**
+ * A media type whose body is a JSON value. The rule the library and the server emitter apply, to the
+ * media type's essence: `type/subtype`, lowercased, with no parameters (RFC 9110 section 8.3.1), so
+ * `application/json; charset=utf-8` is JSON.
+ */
 function isJsonMediaType(type: string): boolean {
-	return /^application\/(json|.*\+json)$/.test(type);
+	return /^application\/(json|.*\+json)$/.test((type.split(";")[0] ?? "").trim().toLowerCase());
 }
 
 /** RFC 9110 `token`, less `*`, which names a range rather than a type. */
@@ -283,10 +293,26 @@ function base64Of(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
+/**
+ * **The URI an embedded resource names: this operation's response, which nothing resolves.**
+ *
+ * The specification requires the `uri` and does not require that `resources/read` answer it: a tool
+ * may embed a resource "to provide additional context or data using a suitable URI scheme", and a
+ * custom scheme is allowed where it follows RFC 3986. The bytes are one call's answer, so there is
+ * nothing to list or read back, and this server declares no `resources` capability, which the
+ * specification asks for with a SHOULD. Stainless's MCP servers name such a body
+ * `resource://tool-response`; this names the operation too, so two tools' answers are not one URI.
+ */
+const TOOL_RESPONSE_URI = "resource://tool-response/";
+
 /** One block of a tool result, as the MCP specification defines the ones this runtime answers with. */
 type ContentBlock =
 	| { readonly type: "text"; readonly text: string }
-	| { readonly type: "image" | "audio"; readonly data: string; readonly mimeType: string };
+	| { readonly type: "image" | "audio"; readonly data: string; readonly mimeType: string }
+	| {
+			readonly type: "resource";
+			readonly resource: { readonly uri: string; readonly mimeType: string; readonly blob: string };
+	  };
 
 /**
  * The MCP result for what a handler returned: `{ status, body, headers }` for a response the
@@ -347,8 +373,43 @@ export async function toolResult(
 	 * state something the document does not, so `content` stays `[]`: present, an array, and honest.
 	 */
 	if (arm.schema !== undefined && answer.body !== undefined) {
-		const kind = declared.bodies?.[String(arm.status)];
-		if (mediaType === undefined || isJsonMediaType(mediaType)) {
+		const kinds = declared.bodies?.[String(arm.status)] ?? {};
+		const kind =
+			mediaType === undefined
+				? undefined
+				: Object.entries(kinds).find(([declaredType]) => admits(declaredType, mediaType))?.[1];
+		if (kind === "binary" && mediaType !== undefined) {
+			/**
+			 * **Raw bytes are bytes whatever the media type**, as the library places a file, so a file
+			 * declared `application/json` is not parsed and re-serialised. They are answered as the block
+			 * MCP defines for their media type, `image` or `audio`, and as an embedded resource under any
+			 * other: a blob with the media type served.
+			 */
+			const bytes = await bytesOf(answer.body);
+			if (bytes === undefined) {
+				throw new ResponseContractError(
+					operationId,
+					status,
+					refusedBody(
+						answer.body,
+						"a binary body is a Uint8Array, an ArrayBuffer or a stream of Uint8Array chunks",
+					),
+				);
+			}
+			const block = /^(image|audio)\//.exec(mediaType.toLowerCase())?.[1];
+			toolAnswer.content = [
+				block === "image" || block === "audio"
+					? { type: block, data: base64Of(bytes), mimeType: mediaType }
+					: {
+							type: "resource",
+							resource: {
+								uri: `${TOOL_RESPONSE_URI}${encodeURIComponent(operationId)}`,
+								mimeType: mediaType,
+								blob: base64Of(bytes),
+							},
+						},
+			];
+		} else if (mediaType === undefined || isJsonMediaType(mediaType)) {
 			/**
 			 * **Validated wherever the body is served as JSON**, which is also the only form a tool result
 			 * can carry structurally. An arm naming no media type is a hand-written arm, and a tool
@@ -380,32 +441,6 @@ export async function toolResult(
 				throw new ResponseContractError(operationId, status, parsed.error.issues);
 			}
 			toolAnswer.content = [{ type: "text", text: String(parsed.data) }];
-		} else if (kind === "binary") {
-			/**
-			 * **Raw bytes are answered as the block MCP defines for their media type**, carrying the data
-			 * as base64 and the media type served. The emitter refuses every other binary media type, so
-			 * one reaching here was declared by hand.
-			 */
-			const block = /^(image|audio)\//.exec(mediaType)?.[1];
-			if (block !== "image" && block !== "audio") {
-				throw new ResponseContractError(
-					operationId,
-					status,
-					refusedBody(answer.body, `no MCP content block carries a binary body as ${mediaType}`),
-				);
-			}
-			const bytes = await bytesOf(answer.body);
-			if (bytes === undefined) {
-				throw new ResponseContractError(
-					operationId,
-					status,
-					refusedBody(
-						answer.body,
-						"a binary body is a Uint8Array, an ArrayBuffer or a stream of Uint8Array chunks",
-					),
-				);
-			}
-			toolAnswer.content = [{ type: block, data: base64Of(bytes), mimeType: mediaType }];
 		} else {
 			/**
 			 * **A model under a media type that is not JSON is text the handler serialised**, which the

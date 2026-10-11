@@ -35,6 +35,11 @@ op uploadForm(@multipartBody body: UploadForm): Item;
 @post
 op sendXml(@header contentType: "application/xml", @body body: Item): Item;
 
+/** A model under a media type that is not text is bytes, which a tool argument cannot carry. */
+@route("/blob")
+@put
+op uploadBlob(@header contentType: "application/octet-stream", @body body: Item): Item;
+
 /** JSON is declared beside a non-JSON type, so this is NOT refused. */
 @route("/either")
 @post
@@ -53,7 +58,7 @@ op ping(): {
 @get
 op quiet(): Item;
 
-/** Raw bytes no MCP content block carries: an octet stream would need a resource URI. */
+/** Raw bytes no image or audio block carries: a tool, answering an embedded resource. */
 @route("/download")
 @get
 op downloadBytes(): {
@@ -61,7 +66,15 @@ op downloadBytes(): {
   @body body: bytes;
 };
 
-/** Raw bytes offered as an image AND as an octet stream: refused, because either may be answered. */
+/** A model under a media type that is not text: the bytes the handler answers, embedded. */
+@route("/download-blob")
+@get
+op downloadBlob(): {
+  @header contentType: "application/octet-stream";
+  @body body: Item;
+};
+
+/** Raw bytes offered as an image AND as an octet stream: a tool, answering whichever is sent. */
 @route("/download-either")
 @get
 op downloadEither(): {

@@ -153,6 +153,23 @@ describe("what toolResult decides, and why", () => {
 		);
 	});
 
+	/**
+	 * **A media type is compared by its essence**, as the library and the server emitter compare it:
+	 * `application/json; charset=utf-8` is JSON. Compared as a whole string, it was answered as text the
+	 * handler supplies, and a handler returning the model was refused.
+	 */
+	it("answers JSON declared with a parameter or in capitals as JSON", async () => {
+		for (const type of ["application/json; charset=utf-8", "Application/JSON"]) {
+			const declared: ToolResponses = {
+				arms: [{ status: 200, schema: widget, contentTypes: [type] }],
+				outputSchema: widget,
+			};
+			const result = await toolResult(declared, "op", { status: 200, body });
+			expect(result.structuredContent).toEqual(body);
+			expect(result.content).toEqual([{ type: "text", text: JSON.stringify(body) }]);
+		}
+	});
+
 	it("puts the boundary at exactly 400, which is where the status classes divide", async () => {
 		// No published schema, so a 399 through `default` is answered on its own terms.
 		const declared: ToolResponses = { arms, outputSchema: undefined };
@@ -334,7 +351,7 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 	const text: ToolResponses = {
 		arms: [{ status: 200, schema: z.string().min(2), contentTypes: ["text/plain"] }],
 		outputSchema: undefined,
-		bodies: { "200": "text" },
+		bodies: { "200": { "text/plain": "text" } },
 	};
 
 	it("answers a text body as the parsed string, in a text block", async () => {
@@ -372,7 +389,7 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 	const image: ToolResponses = {
 		arms: [{ status: 200, schema: z.unknown(), contentTypes: ["image/png"] }],
 		outputSchema: undefined,
-		bodies: { "200": "binary" },
+		bodies: { "200": { "image/png": "binary" } },
 	};
 
 	it("answers image bytes as an image block, from a Uint8Array and from an ArrayBuffer", async () => {
@@ -459,7 +476,7 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 		const range: ToolResponses = {
 			arms: [{ status: 200, schema: z.unknown(), contentTypes: ["image/*"] }],
 			outputSchema: undefined,
-			bodies: { "200": "binary" },
+			bodies: { "200": { "image/*": "binary" } },
 		};
 		const result = await toolResult(range, "anyImage", {
 			status: 200,
@@ -479,29 +496,111 @@ describe("a body that is not JSON, answered as the block its kind is", () => {
 		}
 	});
 
+	/**
+	 * **A file is bytes whatever its media type**, as the library places it, so one declared
+	 * `application/json` is not parsed and re-serialised: its bytes, as JSON, became an object of
+	 * numbered keys.
+	 */
+	it("answers a file declared as JSON as its bytes, embedded", async () => {
+		const file: ToolResponses = {
+			arms: [{ status: 200, schema: z.unknown(), contentTypes: ["application/json"] }],
+			outputSchema: undefined,
+			bodies: { "200": { "application/json": "binary" } },
+		};
+		const result = await toolResult(file, "jsonFile", { status: 200, body: png });
+		expect(parse(result).success).toBe(true);
+		expect(result.content).toEqual([
+			{
+				type: "resource",
+				resource: {
+					uri: "resource://tool-response/jsonFile",
+					mimeType: "application/json",
+					blob: pngBase64,
+				},
+			},
+		]);
+	});
+
+	/**
+	 * **One status may offer one model as text and as bytes**: as XML, the text the handler writes,
+	 * and as `application/octet-stream`, its bytes. The kind is the served media type's, so each is
+	 * answered as what it is.
+	 */
+	it("answers a model as text under XML and as bytes under octet-stream, on one status", async () => {
+		const both: ToolResponses = {
+			arms: [
+				{
+					status: 200,
+					schema: z.object({ id: z.string() }),
+					contentTypes: ["application/xml", "application/octet-stream"],
+				},
+			],
+			outputSchema: undefined,
+			bodies: { "200": { "application/octet-stream": "binary" } },
+		};
+		const asText = await toolResult(both, "both", {
+			status: 200,
+			contentType: "application/xml",
+			body: "<item/>",
+		});
+		expect(asText.content).toEqual([{ type: "text", text: "<item/>" }]);
+		const asBytes = await toolResult(both, "both", {
+			status: 200,
+			contentType: "application/octet-stream",
+			body: png,
+		});
+		expect(parse(asBytes).success).toBe(true);
+		expect(asBytes.content).toEqual([
+			{
+				type: "resource",
+				resource: {
+					uri: "resource://tool-response/both",
+					mimeType: "application/octet-stream",
+					blob: pngBase64,
+				},
+			},
+		]);
+	});
+
 	it("answers audio bytes as an audio block", async () => {
 		const audio: ToolResponses = {
 			arms: [{ status: 200, schema: z.unknown(), contentTypes: ["audio/mpeg"] }],
 			outputSchema: undefined,
-			bodies: { "200": "binary" },
+			bodies: { "200": { "audio/mpeg": "binary" } },
 		};
 		const result = await toolResult(audio, "mp3", { status: 200, body: png });
 		expect(parse(result).success).toBe(true);
 		expect(result.content).toEqual([{ type: "audio", data: pngBase64, mimeType: "audio/mpeg" }]);
 	});
 
-	it("refuses a binary body that is not bytes, and bytes no block carries", async () => {
+	it("refuses a binary body that is not bytes", async () => {
 		await expect(toolResult(image, "png", { status: 200, body: "not bytes" })).rejects.toThrow(
 			ResponseContractError,
 		);
-		const octet: ToolResponses = {
-			arms: [{ status: 200, schema: z.unknown(), contentTypes: ["application/octet-stream"] }],
-			outputSchema: undefined,
-			bodies: { "200": "binary" },
-		};
-		await expect(toolResult(octet, "octet", { status: 200, body: png })).rejects.toThrow(
-			ResponseContractError,
-		);
+	});
+
+	/**
+	 * **Bytes no other block carries are an embedded resource**, a blob with its media type. Its `uri`
+	 * is required and names this operation's response; nothing resolves it, which the specification
+	 * allows of a resource a tool embeds (`resources` is a SHOULD), and which `typespec-http-mcp`
+	 * says in the URI rather than pointing at a server it does not run.
+	 */
+	it("answers bytes no other block carries as an embedded resource, with the bytes and the type", async () => {
+		for (const type of ["application/octet-stream", "application/pdf"]) {
+			const declared: ToolResponses = {
+				arms: [{ status: 200, schema: z.unknown(), contentTypes: [type] }],
+				outputSchema: undefined,
+				bodies: { "200": { [type]: "binary" } },
+			};
+			const result = await toolResult(declared, "manual", { status: 200, body: png });
+			expect(parse(result).success).toBe(true);
+			expect(result.content).toEqual([
+				{
+					type: "resource",
+					resource: { uri: "resource://tool-response/manual", mimeType: type, blob: pngBase64 },
+				},
+			]);
+		}
 	});
 });
 
