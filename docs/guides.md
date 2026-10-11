@@ -221,6 +221,37 @@ Every request also needs `_meta` carrying `io.modelcontextprotocol/protocolVersi
 
 ## Upgrading
 
+### To `0.2.0`
+
+`0.2.0` requires `typespec-http-zod` `0.28.0` and pairs with `typespec-hono` `0.25.0`. `0.1.0` was
+built on the library's `0.26.0`, so both of the library's later upgrades apply to the validators a
+tool checks its arguments with: read its "To `0.27.0`" and "To `0.28.0`" sections. Two of them
+change what a caller of a tool sees: an integer outside its declared width (`int32`) is refused, and
+a `@pattern` is matched with the Unicode flag.
+
+**A tool's types follow the server's handler, which one handler object serves.**
+
+- A result body is typed from the schema's input, so a defaulted property may be left out; an optional
+  one is `?: T`, with no `| undefined`.
+- An optional request body is `body?: T`, absent when the call leaves it out, and the tool's argument
+  schema lets the call leave it out. It was required.
+- A binary result is `ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer`. A platform stream still
+  satisfies `ByteStream`, so a handler returning one compiles as before.
+- An input made only of an empty model is `{}`.
+- On a route several operations share, a tool hands its handler that operation's `accept` literal.
+- A cookie parameter is an argument, as a header is.
+- A response header declared with `@encode` is its encoded type: `number` for
+  `@encode(DurationKnownEncoding.seconds, int32)`.
+
+**An `Http.File` operation is a tool only where a tool can carry the file.** A download under an
+image or audio type is answered as that block; under any other type, and as an upload, it is refused
+and leaves `TOOL_NAMES` and `Tools`. Such tools answered nothing and dropped uploads in `0.1.0`. A
+handler object written to `satisfies Tools` drops the handler for each one; one written to
+`satisfies Operations` and passed to `registerTools` needs no change.
+
+**Each operation on a shared route is described and selected as itself**, so its tool may gain the
+description it always declared, and `tool-tags` may now select or exclude it on its own tags.
+
 ### From `runtime-module` and `deps.respond`
 
 **`runtime-module` is refused with `runtime-module-removed`, an error.** `mcp-runtime.gen.ts` is

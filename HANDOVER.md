@@ -8,12 +8,11 @@ Working record. Everything here is measured; where a number appears, it came fro
 `typespec-openapi-document`. Emits an MCP tool surface from an HTTP service definition, dispatching
 into **the same handler object** a generated Hono server calls.
 
-**195 tests, 25 files. All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
+**All five gates green by exit code**: `build`, `test`, `typecheck`, `lint`,
 `format:check`. `pnpm test` is two vitest projects; `pnpm test:unit` is the fast one for the edit
 loop. Zero lint warnings. CI runs the same five gates on Node 22 and 24 and is green.
 
-**The repository is public and `main` is pushed.** Nothing is published to npm: `0.1.0` has never
-been released, deliberately, and is waiting on a use for it rather than on any unfinished work.
+**The repository is public.** `0.1.0` was published on 2026-09-16; `0.2.0` is being prepared.
 Publishing is public and permanent, and needs the maintainer's explicit approval.
 
 **Three numbers to lead a report with: corpus scenarios / emitted files that compile / defects

@@ -62,14 +62,17 @@ collision -- a guard that stops running with nothing to say so.
 
 These are written twice on purpose. Each is forced, each is stated, and each has an arm.
 
-| duplicated              | why it cannot be shared                                                                                                      | what grades it                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `ResponseArm`, `armFor` | the runtime is copied into the consumer's output, and emitted output must never import a build-time package                  | `test/runtime/parity.test.ts`, against the library's own, by value and by type            |
-| `Fields`, `Produced`    | emitted as text into a file that imports nothing                                                                             | `test/agreement/agreement.test.ts`, by compiling one handler object through both surfaces |
-| result unions           | the sibling server emitter's derivation is not exported, and its status types name Hono's, which this output must not import | `test/agreement/agreement.test.ts`, `Identical<>` per operation                           |
-| status-code sets        | Hono declares them as types; a result union written as literals needs them as values                                         | `test/runtime/status-codes.test.ts`, against Hono's installed declaration file            |
+| duplicated              | why it cannot be shared                                                                                     | what grades it                                                                            |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ResponseArm`, `armFor` | the runtime is copied into the consumer's output, and emitted output must never import a build-time package | `test/runtime/parity.test.ts`, against the library's own, by value and by type            |
+| `Fields`, `Produced`    | emitted as text into a file that imports nothing                                                            | `test/agreement/agreement.test.ts`, by compiling one handler object through both surfaces |
 
-All four are permanent: they follow from emitted output having to be self-contained.
+Both are permanent: they follow from emitted output having to be self-contained.
+
+**Two more were removed rather than documented.** The result unions' rules and the status-code table
+were held here and in the sibling server emitter, and are now the library's `resultMembersOf`,
+`statusCodesOf` and `STATUS_CODES`: each emitter renders the same members in its own spelling, and
+`test/agreement/agreement.test.ts` and `test/conformance/agreement.test.ts` hold the two identical.
 
 **A third was removed rather than documented.** `securityFor` was duplicated here because the library
 published only `scopes` and `noAuth` -- two lossy projections that discard which scheme demanded what

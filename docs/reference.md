@@ -61,7 +61,10 @@ A tool's arguments are one object: the operation's path, query, header and cooki
 its body. The handler is given the same input the sibling server's handler is given.
 
 - **A model body is merged with the parameters.** A body the merge cannot express (a union, an
-  array, a scalar, a model with an index signature) is one argument under its parameter's name.
+  array, a scalar or an enum, an optional body, or a model sending a key a parameter also has) is
+  one argument under its parameter's name. A merged model whose properties a tool cannot publish as
+  arguments, one with a `@discriminator` or one extending a typed `Record`, is refused:
+  `non-object-body`.
 - **An optional body may be left out.** Its argument is `.exactOptional()`, so a call without it
   reaches the handler with no `body` key, which is what `body?:` in the handler's input states.
 - **On a route several operations share, `accept` is not an argument.** It selects which operation
@@ -92,7 +95,8 @@ generated callback hands it to `toolResult`:
 A binary body may be a `Uint8Array`, an `ArrayBuffer` or a `ByteStream`: any stream of `Uint8Array`
 chunks, which is how the framework-free contract types (`requests.gen.ts`) state one, and which every
 platform `ReadableStream` satisfies. A stream is read to its end through its reader, because a tool
-result is one message, and a chunk that is not a `Uint8Array` throws `ResponseContractError`. `mimeType` is the media type served: the handler's
+result is one message, and a chunk that is not a `Uint8Array` throws `ResponseContractError`.
+`mimeType` is the media type served: the handler's
 `contentType` where the status offers several or a range, otherwise the one it offers.
 
 The runtime cannot tell a string, bytes and a serialised model apart from an arm, so the generated
@@ -168,8 +172,9 @@ and `@typespec/openapi3` then writes nothing, so an error here would cost you th
 one operation this emitter happens not to be able to express. The one error is about configuration,
 `runtime-module-removed`, where a warning would let a setting be silently ignored.
 
-Every one is targeted at the operation by **verb and path**, never by name: matching by name never
-succeeds for an operation declared inside an `interface`.
+Every one is targeted at the operation the library collected the route from, by its **operation
+id**, never by name or by verb and path: a name never matches an operation declared inside an
+`interface`, and every member of a `@sharedRoute` has the same verb and path.
 
 ### `no-tools-selected`
 
@@ -265,16 +270,14 @@ Remedy: declare a JSON media type, or a string body, to have it checked.
 
 ### `non-object-body`
 
-The request body is a scalar, an enum, a union or an array, so it has no properties to merge into a
-tool's argument object.
+The request body is a model the library merges into the parameters, but whose properties are not a
+fixed set a tool can publish as arguments: a model with a `@discriminator`, whose properties depend
+on which variant is sent, or one extending a typed `Record`, whose keys are open.
 
-A tool takes **one object**. The document states the body separately from the parameters, so this
-emitter merges them -- and there is nothing to merge from `@body body: string`. Naming it under an
-invented property would publish a contract no reader of the document could predict, and would break
-the handler signature, which receives the bare value.
-
-A body the library already names -- a dictionary body, for instance -- is nested rather than merged
-and is never refused.
+A tool takes **one object**, and its `inputSchema` has to name every argument. A body the library
+names is nested under its parameter's name rather than merged, and is never refused: a scalar, an
+enum, a union, an array, an optional body, an indexed model, and a model sending a key a parameter
+also has are all ordinary arguments.
 
 Remedy: wrap it in a model with a named property, or exclude the operation with `exclude-tags`.
 

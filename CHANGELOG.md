@@ -2,10 +2,25 @@
 
 ## [Unreleased]
 
+Upgrading: [what to check before you take this](docs/guides.md#to-020).
+
 Requires `typespec-http-zod` 0.28.0 and pairs with `typespec-hono` 0.25.0. `test/agreement/` and the
 new corpus arm hold every tool signature identical to the server handler's.
 
 ### Changed, breaking
+
+- **An `Http.File` operation is a tool only where a tool can carry the file.** A download is answered
+  as the `image` or `audio` block its media type names, and refused with `binary-tool-output` under
+  any other type; an upload is refused with `binary-tool-input`, where an upload declared only under
+  a type that is not JSON was refused as `non-json-request`. 0.1.0 published such operations as
+  tools that answered `content: []` and dropped the uploaded file. Removed from `TOOL_NAMES` and
+  `Tools`, so a handler object that `satisfies` `Tools` and names one no longer compiles; one that
+  `satisfies` the server's `Operations` and is passed to `registerTools` still does.
+- **A response header declared with `@encode` takes its encoded type**: `@encode(seconds, int32)
+retryAfter: duration` is a `number`, where it was a `string`, which is what its schema checks.
+- **The validators move from `typespec-http-zod` 0.26.0 to 0.28.0**, so 0.27.0's changes arrive too:
+  a declared integer width is enforced (`z.int32()`), so a tool argument outside it is refused, and a
+  `@pattern` is compiled with the Unicode flag. See [To 0.2.0](docs/guides.md#to-020).
 
 - **A result's body is typed from the schema's input, `Produced<z.input<...>>`**, as the server
   types it. A property with a default may be left out of a returned body, because the runtime fills
