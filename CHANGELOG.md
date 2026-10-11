@@ -48,6 +48,11 @@ new corpus arm hold every tool signature identical to the server handler's.
 
 ### Changed
 
+- **`@typespec/openapi` is a declared peer, and the README installs it.** `typespec-http-zod` requires
+  it, and this package did not say so: following the README on TypeSpec 1.15 or 1.16, a package
+  manager installed `@typespec/openapi` at its newest, whose peers are the newest compiler, so a
+  strict-peer install failed. The install line names the three `@typespec` packages, to be
+  installed at one version.
 - **Built and graded against TypeSpec 1.17.**
 - **The result rules and the status table are the library's**, `resultMembersOf` and
   `STATUS_CODES`. This package held a copy of both.

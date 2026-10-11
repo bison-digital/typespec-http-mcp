@@ -18,9 +18,12 @@ options:
 Install it as a **devDependency**: nothing it emits imports it.
 
 ```sh
-pnpm add -D typespec-http-mcp
+pnpm add -D typespec-http-mcp @typespec/compiler @typespec/http @typespec/openapi
 pnpm add @modelcontextprotocol/server zod
 ```
+
+Install the three `@typespec` packages at one version, 1.15 or later: left to a package manager,
+`@typespec/openapi` is installed at its newest, which needs the newest compiler.
 
 ## What it emits, and what you write
 
