@@ -110,6 +110,10 @@ const operations = {
 		status: 200,
 		body: { message: `${input.widgetId} as ${input.accept}` },
 	}),
+	WidgetTools_preferences: (_ctx: Caller, input) => ({
+		status: 200,
+		body: { message: `${input.widgetId} for ${input.session}` },
+	}),
 	WidgetTools_markSeen: (_ctx: Caller, input) =>
 		"body" in input
 			? { status: 200, body: { ...widget, id: input.widgetId, name: input.body.text } }
@@ -191,6 +195,9 @@ type _SummaryAsJson = MustHold<
 		Operations<Caller>["WidgetTools_summaryAsJson"]
 	>
 >;
+type _Preferences = MustHold<
+	Identical<Tools<Caller>["WidgetTools_preferences"], Operations<Caller>["WidgetTools_preferences"]>
+>;
 type _MarkSeen = MustHold<
 	Identical<Tools<Caller>["WidgetTools_markSeen"], Operations<Caller>["WidgetTools_markSeen"]>
 >;
@@ -208,6 +215,7 @@ export type {
 	_OneByteStream,
 	_Photo,
 	_Picture,
+	_Preferences,
 	_Read,
 	_Refused,
 	_Reindex,

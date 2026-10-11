@@ -12,8 +12,8 @@ using Http;
  * It carries one of everything the emitter has to reason about: a path parameter, a query parameter
  * that arrives as text, a header whose wire name differs from its TypeSpec name, a body with a
  * DEFAULTED property, a body the caller may leave out, a parameterless operation, a bodyless success,
- * two operations negotiating one route by `accept`, a tagged interface, an operation excluded by tag,
- * and every method whose safety or idempotence the annotations derive from.
+ * two operations negotiating one route by `accept`, a cookie, a tagged interface, an operation
+ * excluded by tag, and every method whose safety or idempotence the annotations derive from.
  *
  * **And one of every kind of response a handler returns**, because the result type is where the two
  * emitters are likeliest to part company: an exact failure, a failure RANGE with an optional header,
@@ -175,6 +175,9 @@ interface WidgetTools {
   @route("/{widgetId}/summary")
   @get
   summaryAsJson(@path widgetId: string, @header accept: "application/json"): Detail;
+
+  /** A widget's display preferences for the caller's session, read from a cookie. */
+  @route("/{widgetId}/preferences") @get preferences(@path widgetId: string, @cookie session: string): Detail;
 
   /** Mark a widget as seen, with a note or without one: the body is optional. */
   @route("/{widgetId}/seen") @post markSeen(@path widgetId: string, @body body?: Note): Widget | NotFound;

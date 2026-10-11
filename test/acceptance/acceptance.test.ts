@@ -99,6 +99,10 @@ function handlersFor(): Record<string, unknown> {
 							},
 						}),
 		}),
+		WidgetTools_preferences: (_ctx: unknown, input: { widgetId: string; session: string }) => ({
+			status: 200,
+			body: { message: `${input.widgetId} for ${input.session}` },
+		}),
 		// Each says which `accept` it was handed, which the caller never sends.
 		WidgetTools_summaryAsText: (_ctx: unknown, input: { widgetId: string; accept: string }) => ({
 			status: 200,
@@ -337,6 +341,19 @@ describe("a real client, over the wire, against emitted output", () => {
 		expect(json.result.content).toEqual([
 			{ type: "image", data: Buffer.from(PICTURE).toString("base64"), mimeType: "image/png" },
 		]);
+	});
+
+	/**
+	 * **A cookie is an argument, as a header is.** A tool call carries neither, so both are inputs the
+	 * caller supplies, and the handler is given the cookie the server's handler would be.
+	 */
+	it("takes a cookie parameter as an argument and hands it to the handler", async () => {
+		const { json } = await rpc(BEARER, "tools/call", {
+			name: "WidgetTools_preferences",
+			arguments: { widgetId: "4", session: "s-1" },
+		});
+		expect(json.result.isError, JSON.stringify(json)).toBeUndefined();
+		expect(json.result.structuredContent).toEqual({ message: "4 for s-1" });
 	});
 
 	it("answers a text body as a text block, over the wire", async () => {
