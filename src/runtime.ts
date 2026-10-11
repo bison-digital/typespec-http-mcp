@@ -115,13 +115,20 @@ export interface ToolResponses {
  * log.
  */
 export class ResponseContractError extends Error {
-	constructor(
-		readonly operationId: string,
-		readonly status: number,
-		readonly issues: ZodError["issues"],
-	) {
+	readonly operationId: string;
+	readonly status: number;
+	readonly issues: ZodError["issues"];
+
+	/**
+	 * Fields declared and assigned rather than written as parameter properties, which are not
+	 * erasable syntax: a consumer building with `erasableSyntaxOnly` could not compile this file.
+	 */
+	constructor(operationId: string, status: number, issues: ZodError["issues"]) {
 		super(`${operationId} answered ${status} with a body its document does not permit`);
 		this.name = "ResponseContractError";
+		this.operationId = operationId;
+		this.status = status;
+		this.issues = issues;
 	}
 }
 
@@ -134,15 +141,17 @@ export class ResponseContractError extends Error {
  * answered, because answering would publish a status the contract does not state.
  */
 export class UndeclaredStatusError extends Error {
-	constructor(
-		readonly operationId: string,
-		readonly result: unknown,
-	) {
+	readonly operationId: string;
+	readonly result: unknown;
+
+	constructor(operationId: string, result: unknown) {
 		const status =
 			typeof result === "object" && result !== null && "status" in result
 				? String(result.status)
 				: "no status";
 		super(`${operationId} answered ${status}, which its document does not declare`);
+		this.operationId = operationId;
+		this.result = result;
 		this.name = "UndeclaredStatusError";
 	}
 }

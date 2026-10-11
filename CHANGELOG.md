@@ -27,6 +27,10 @@ new corpus arm hold every tool signature identical to the server handler's.
 
 ### Fixed
 
+- **The emitted runtime compiles under `erasableSyntaxOnly`.** Its error classes declared their
+  fields as constructor parameter properties, which are not erasable syntax, so a project building
+  with that flag had to turn it off. The corpus is typechecked with it, and with
+  `noPropertyAccessFromIndexSignature`, now.
 - **Each operation on a shared route is its own tool: its own description, its own tags and its
   own diagnostics.** Operations were looked up by verb and path, which `@sharedRoute` gives every
   member, so each member published one member's doc comment as its description, was selected by
