@@ -443,9 +443,10 @@ export async function toolResult(
 			toolAnswer.content = [{ type: "text", text: String(parsed.data) }];
 		} else {
 			/**
-			 * **A model under a media type that is not JSON is text the handler serialised**, which the
-			 * schema does not describe, so it is answered as it is. `unvalidated-response-media-type`
-			 * said so at compile time. Anything but a string is not that text.
+			 * **A model under a textual media type that is not JSON is text the handler serialised**,
+			 * which the schema does not describe, so it is answered as it is; under a type that is not
+			 * text it is bytes, and has a `binary` entry. `unvalidated-response-media-type` said so at
+			 * compile time. Anything but a string is not that text.
 			 */
 			if (typeof answer.body !== "string") {
 				throw new ResponseContractError(
