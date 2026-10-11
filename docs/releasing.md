@@ -104,5 +104,9 @@ naming the module but not the cause.
 4. Push the tag **separately**: a lightweight tag does not travel with `--follow-tags`.
 5. Confirm by SHA with `gh run list --json headSha,conclusion`, then by `npm view typespec-http-mcp version`.
    The registry lags the workflow by a minute; that is not a failure.
+6. **Name the exact version wherever the release is announced.** pnpm 11 holds back a version newer
+   than its minimum release age, so on the day of a release `pnpm add -D typespec-http-mcp` quietly
+   installs the one before it. `pnpm add -D typespec-http-mcp@X.Y.Z` installs the release and lists
+   it in `minimumReleaseAgeExclude`, with the `typespec-hono` and `typespec-http-zod` it needs.
 
 **Only Zach authorises a release, directly.**
