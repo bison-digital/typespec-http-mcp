@@ -8,7 +8,7 @@ import {
 	statusCodesOf,
 } from "typespec-http-zod";
 import { annotationsFor, type ToolAnnotations } from "./annotations.js";
-import { bodyKindsOf, bodyServingOf, isJsonMediaType, membersOf } from "./bodies.js";
+import { bodyKindsOf, isJsonMediaType, membersOf } from "./bodies.js";
 import type { SecurityRequirement } from "./runtime.js";
 
 /**
@@ -237,9 +237,6 @@ function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	return `${constructor}({ ${spreads.join(", ")} })`;
 }
 
-/** The type of the `contentType` a tool result names for a member - the library's rule. */
-const contentTypeTypeOf = mediaTypeTypeOf;
-
 /**
  * The status a result member is typed with: the codes its response answers with, written out.
  *
@@ -267,9 +264,9 @@ function resultTypeOf(entry: ToolEntry): string {
 		const { response } = member;
 		const fields = [`readonly status: ${statusTypeOf(response, entry.route)}`];
 		if (member.choosesMediaType && member.mediaType !== undefined) {
-			fields.push(`readonly contentType: ${contentTypeTypeOf(member.mediaType)}`);
+			fields.push(`readonly contentType: ${mediaTypeTypeOf(member.mediaType)}`);
 		}
-		switch (bodyServingOf(member)) {
+		switch (member.serving) {
 			case "none":
 				fields.push("readonly body?: undefined");
 				break;
@@ -396,7 +393,7 @@ export function renderTools(
 		}
 		if (entry.names.body !== undefined) imported.add(entry.names.body);
 		for (const member of membersOf(entry.route, entry.names)) {
-			const serving = bodyServingOf(member);
+			const serving = member.serving;
 			if ((serving === "json" || serving === "text") && member.schemaName !== undefined) {
 				imported.add(member.schemaName);
 			}
@@ -418,7 +415,7 @@ export function renderTools(
 	if (entries.length > 0) runtimeTypes.push("Awaitable");
 	const usesByteStream = entries.some((entry) =>
 		membersOf(entry.route, entry.names).some((member) => {
-			const serving = bodyServingOf(member);
+			const serving = member.serving;
 			return serving === "binary" || serving === "stream";
 		}),
 	);
@@ -441,7 +438,7 @@ export function renderTools(
 	const usesFields = entries.some((entry) => intersectedValidators(entry).length > 0);
 	const usesProduced = entries.some((entry) =>
 		membersOf(entry.route, entry.names).some((member) => {
-			const serving = bodyServingOf(member);
+			const serving = member.serving;
 			return serving === "json" || serving === "text";
 		}),
 	);

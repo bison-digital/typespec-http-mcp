@@ -1,9 +1,7 @@
 import {
-	type BodyServing,
 	type EmittedResponse,
 	type EmittedRoute,
 	isJsonMediaType,
-	isMediaRange,
 	type ResultMember as LibraryResultMember,
 	resultMembersOf,
 	type RouteSchemaNames,
@@ -42,19 +40,13 @@ export interface ResultMember extends LibraryResultMember<EmittedResponse> {
 	readonly schemaName: string | undefined;
 }
 
-export type { BodyServing };
-
-export function bodyServingOf(member: ResultMember): BodyServing {
-	return member.serving;
-}
-
 export function membersOf(route: EmittedRoute, names: RouteSchemaNames): ResultMember[] {
 	return resultMembersOf(route.responses, (response) => response.schema !== undefined).map(
 		(member) => ({ ...member, schemaName: names.arms[member.index]?.schema }),
 	);
 }
 
-export { isJsonMediaType, isMediaRange };
+export { isJsonMediaType };
 
 /**
  * How the runtime answers a status's body under a media type that is not JSON, where that is not the
@@ -95,7 +87,7 @@ export function unvalidatedResponsesOf(
 	const members = membersOf(route, names);
 	return route.responses.flatMap((response) => {
 		const types = members
-			.filter((member) => member.response === response && bodyServingOf(member) === "unvalidated")
+			.filter((member) => member.response === response && member.serving === "unvalidated")
 			.flatMap((member) => (member.mediaType === undefined ? [] : [member.mediaType]));
 		return types.length === 0 ? [] : [{ status: response.status, types }];
 	});

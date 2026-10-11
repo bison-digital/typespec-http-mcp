@@ -131,7 +131,7 @@ describe("the package declares what it needs to run outside this checkout", () =
 			}
 		}
 		// Non-vacuity: a pattern that stopped matching would compile an empty probe.
-		expect(imported.size).toBeGreaterThanOrEqual(15);
+		expect(imported.size).toBeGreaterThanOrEqual(10);
 		expect(imported).toContain("resultMembersOf");
 
 		const members = [
@@ -143,6 +143,8 @@ describe("the package declares what it needs to run outside this checkout", () =
 			'RouteSchemaNames["queryFields"]',
 			// refusals.ts, a raw body refused as binary
 			'EmittedRoute["rawBodyBinary"]',
+			// emitter.ts and select.ts, the operation a route came from
+			'EmittedService["operations"]',
 		];
 		const probeDir = join(packageRoot, "test", ".out-packaging-api");
 		mkdirSync(probeDir, { recursive: true });
