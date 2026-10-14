@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased]
+
+Upgrading: [what to check before you take this](docs/guides.md#to-030).
+
+Requires `typespec-http-zod` 0.29.0 and pairs with `typespec-hono` 0.26.0.
+
+### Changed, breaking
+
+- **The validators move to `typespec-http-zod` 0.29.0**, and three of its changes make a tool refuse
+  an argument the published document already refused: a date-time header with no `@encode` is an
+  RFC 7231 HTTP-date, a scalar extending a constrained scalar is constrained by both, and
+  `@encode(rfc3339)` on a date-time checks the date-time. See [To 0.3.0](docs/guides.md#to-030).
+
+### Changed
+
+- **Every argument in `tools/list` carries its description.** The library now emits each doc as
+  `.describe()`, and a tool's input spreads the same property schemas, so a parameter's `@param`
+  text and a property's doc reach the model calling the tool. Without them it saw bare types and
+  patterns, and one consumer's agents had a tool refuse 369 calls against 98 accepted, most of them
+  refused by the client checking this schema before it called. Graded through `tools/list` in
+  process and from a real client against `wrangler`.
+- **Spec text outside ASCII is written as `\uXXXX` escapes** in `mcp.gen.ts`, through the library's
+  `literal`, as every other emitted file now writes it.
+
+### Fixed
+
+- **A path parameter decoded out of its URI segment is validated as the value a tool is given**
+  (#1). For `{.param}`, `{;param}` or a segment with a literal around the expression, a tool spread
+  the path validator's field into its arguments, which decodes segment TEXT: `{ param: "a" }` was
+  refused as not the expansion the route declares, and `"primitivex"` under `primitive{param}` was
+  rewritten to `"x"`. Each such parameter now takes the schema the decoding feeds, chosen by the
+  library's `EmittedRoute.decodedPathParameters` rather than re-derived here. A new arm sends every
+  request the corpus's `routes` mock declares through the REST route and the same handler's tool, and
+  requires the two inputs to agree: six scenarios failed it before this.
+
 ## [0.2.0] - 2026-10-11
 
 Upgrading: [what to check before you take this](docs/guides.md#to-020).

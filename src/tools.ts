@@ -1,6 +1,7 @@
 import {
 	jsDocComment,
 	mediaTypeTypeOf,
+	literal,
 	objectKey,
 	type EmittedResponse,
 	type EmittedRoute,
@@ -29,7 +30,7 @@ function renderSecurity(requirements: readonly SecurityRequirement[]): string {
 				`{ ${Object.entries(requirement)
 					.map(
 						([scheme, scopes]) =>
-							`${JSON.stringify(scheme)}: [${scopes.map((s) => JSON.stringify(s)).join(", ")}]`,
+							`${literal(scheme)}: [${scopes.map((s) => literal(s)).join(", ")}]`,
 					)
 					.join(", ")} }`,
 		)
@@ -203,7 +204,7 @@ function selectedAcceptOf(entry: ToolEntry): string | undefined {
 	const selected = entry.names.selectedAccept;
 	return selected === undefined
 		? undefined
-		: `${objectKey(selected.name)}: ${JSON.stringify(selected.value)}`;
+		: `${objectKey(selected.name)}: ${literal(selected.value)}`;
 }
 
 /**
@@ -224,6 +225,24 @@ function selectedAcceptOf(entry: ToolEntry): string | undefined {
 function inputSchemaOf(entry: ToolEntry, sealed: boolean): string {
 	const constructor = sealed ? "z.strictObject" : "z.looseObject";
 	const spreads = shapedValidators(entry).map((name) => `...${name}.shape`);
+	/**
+	 * **A decoded path parameter takes its VALUE schema, not the path validator's field.** That field
+	 * is `z.preprocess(<decode>, <value schema>)`: it reads the segment TEXT a router extracts -
+	 * `primitive.a` for `{.param}` - and hands on `a`. A tool argument is already the value, so through
+	 * the decoder `{ param: "a" }` was refused as not the expansion the route declares, while
+	 * `tools/list` published `param` as a plain string, and a value starting with the route's literal
+	 * was rewritten without an error (issue #1). Six `@typespec/http-specs` path scenarios failed.
+	 *
+	 * Which parameters are decoded is the library's fact, `decodedPathParameters`, read rather than
+	 * re-derived, so this cannot drift from the validator it overrides. The override comes after the
+	 * spread, so it wins.
+	 */
+	const path = entry.names.path;
+	if (path !== undefined) {
+		for (const name of entry.route.decodedPathParameters) {
+			spreads.push(`${objectKey(name)}: ${path}.shape[${literal(name)}].out`);
+		}
+	}
 	if (entry.route.bodyProperty !== undefined && entry.names.body !== undefined) {
 		/**
 		 * **Optional where the document lets the body be absent.** It was required here while the
@@ -420,7 +439,7 @@ export function renderTools(
 		}),
 	);
 	if (usesByteStream) runtimeTypes.push("ByteStream");
-	const from = JSON.stringify(DEFAULT_RUNTIME_MODULE);
+	const from = literal(DEFAULT_RUNTIME_MODULE);
 	const runtimeImport = [
 		...(entries.length > 0 ? [`import { toolResult } from ${from};`] : []),
 		`import type { ${runtimeTypes.toSorted().join(", ")} } from ${from};`,
@@ -473,12 +492,12 @@ export function renderTools(
 
 	/** Every scope any selected operation demands, de-duplicated and ordered. */
 	const scopes = [...new Set(entries.flatMap((entry) => [...entry.route.scopes]))].toSorted();
-	const scopesLiteral = `[${scopes.map((scope) => JSON.stringify(scope)).join(", ")}]`;
+	const scopesLiteral = `[${scopes.map((scope) => literal(scope)).join(", ")}]`;
 
 	const declaredUnion =
 		declaredOperationIds.length === 0
 			? "never"
-			: declaredOperationIds.map((id) => JSON.stringify(id)).join(" | ");
+			: declaredOperationIds.map((id) => literal(id)).join(" | ");
 
 	/**
 	 * **Registered in a deterministic order, sorted by tool name.**
@@ -491,12 +510,11 @@ export function renderTools(
 
 	const registrations = ordered
 		.map((entry) => {
-			const title =
-				entry.title === undefined ? "" : `\n\t\t\t\ttitle: ${JSON.stringify(entry.title)},`;
+			const title = entry.title === undefined ? "" : `\n\t\t\t\ttitle: ${literal(entry.title)},`;
 			const description =
 				entry.description === undefined
 					? ""
-					: `\n\t\t\t\tdescription: ${JSON.stringify(entry.description)},`;
+					: `\n\t\t\t\tdescription: ${literal(entry.description)},`;
 			const published = outputSchemaOf(entry);
 			const outputSchema = published === undefined ? "" : `\n\t\t\t\toutputSchema: ${published},`;
 			/**
@@ -507,13 +525,13 @@ export function renderTools(
 			for (const [status, mediaType, kind] of bodyKindsOf(entry.route, entry.names)) {
 				kinds.set(status, [
 					...(kinds.get(status) ?? []),
-					`${JSON.stringify(mediaType)}: ${JSON.stringify(kind)}`,
+					`${literal(mediaType)}: ${literal(kind)}`,
 				]);
 			}
 			const bodies =
 				kinds.size === 0
 					? ""
-					: `, bodies: { ${[...kinds].map(([status, byType]) => `${JSON.stringify(status)}: { ${byType.join(", ")} }`).join(", ")} }`;
+					: `, bodies: { ${[...kinds].map(([status, byType]) => `${literal(status)}: { ${byType.join(", ")} }`).join(", ")} }`;
 			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${published ?? "undefined"}${bodies} }`;
 			/**
 			 * **A parameterless tool must not DECLARE an argument it never reads.**
@@ -535,23 +553,23 @@ export function renderTools(
 			const argumentName = parameterless ? "_args" : "args";
 			return `	{
 		const tool = server.registerTool(
-			${JSON.stringify(entry.toolName)},
+			${literal(entry.toolName)},
 			{${title}${description}
 				inputSchema: ${inputSchemaName(entry)},${outputSchema}
 				annotations: ${renderAnnotations(annotationsFor(entry.route.verb))},
 			},
 			async (${argumentName}, context) => {
-				const ctx = deps.context(context, ${JSON.stringify(entry.route.authentication)});
+				const ctx = deps.context(context, ${literal(entry.route.authentication)});
 				if (ctx === null) return deps.noContext(context);
 				return toolResult(
 					${declared},
-					${JSON.stringify(entry.route.operationId)},
+					${literal(entry.route.operationId)},
 					await handlersFor(context).${entry.route.operationId}(ctx, ${argument}),
 				);
 			},
 		);
 		if (deps.permits(${renderSecurity(entry.requirements)})) {
-			registered.push(${JSON.stringify(entry.toolName)});
+			registered.push(${literal(entry.toolName)});
 		} else {
 			tool.remove();
 		}
@@ -617,7 +635,7 @@ export type ToolsExhaustive<T> = T & Record<Exclude<keyof T, DeclaredOperationId
 export const SCOPES_SUPPORTED = ${scopesLiteral} as const;
 
 /** Every tool this file registers, in the order it registers them. */
-export const TOOL_NAMES = [${ordered.map((entry) => JSON.stringify(entry.toolName)).join(", ")}] as const;
+export const TOOL_NAMES = [${ordered.map((entry) => literal(entry.toolName)).join(", ")}] as const;
 
 /**
  * Register every tool this service declares, onto a server the APPLICATION owns.

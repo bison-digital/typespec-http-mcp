@@ -70,7 +70,11 @@ interface WidgetTools {
   @useAuth(Read)
   @get list(@query limit?: int32): WidgetPage | Problem;
 
-  /** Fetch one widget by its identifier. */
+  /**
+   * Fetch one widget by its identifier.
+   *
+   * @param widgetId The identifier the widget was created with.
+   */
   @useAuth(Read)
   @route("/{widgetId}") @get read(@path widgetId: string): Widget | Problem;
 

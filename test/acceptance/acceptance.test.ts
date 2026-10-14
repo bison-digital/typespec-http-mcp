@@ -222,6 +222,35 @@ describe("a real client, over the wire, against emitted output", () => {
 	});
 
 	/**
+	 * **Every argument a tool publishes carries the description its spec gives it.** A model calling a
+	 * tool reads `tools/list` and nothing else, and before this each property arrived as a bare type
+	 * and pattern: one consumer's agents had a tool refuse 369 calls against 98 accepted, most of them
+	 * refused by the MCP client checking this very schema before it called. A parameter's `@param`
+	 * text and a body property's doc both arrive, the second through the spread of the body's shape;
+	 * a property with no doc of its own carries none.
+	 */
+	it("publishes each argument's description in tools/list", async () => {
+		const listed = (await rpc(BEARER, "tools/list")).json as {
+			result: {
+				tools: {
+					name: string;
+					inputSchema: { properties?: Record<string, { description?: string }> };
+				}[];
+			};
+		};
+		const argumentsOf = (name: string) =>
+			listed.result.tools.find((tool) => tool.name === name)?.inputSchema.properties ?? {};
+		expect(argumentsOf("WidgetTools_read")["widgetId"]?.description).toBe(
+			"The identifier the widget was created with.",
+		);
+		expect(argumentsOf("WidgetTools_create")["name"]?.description).toBe(
+			"What the widget is called, unique among widgets.",
+		);
+		expect(argumentsOf("WidgetTools_create")["colour"]).toBeDefined();
+		expect(argumentsOf("WidgetTools_create")["colour"]?.description).toBeUndefined();
+	});
+
+	/**
 	 * **Two success statuses with different bodies publish no `outputSchema`, and this is why.**
 	 *
 	 * The SDK server refuses a result that is not an error and carries no `structuredContent` once a

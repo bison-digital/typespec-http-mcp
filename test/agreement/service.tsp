@@ -48,8 +48,11 @@ model Widget {
   colour?: string = "grey";
 }
 
+/** A widget as a caller proposes it. */
 model NewWidget {
+  /** What the widget is called, unique among widgets. */
   name: string;
+
   colour?: string = "grey";
 }
 
@@ -125,7 +128,11 @@ interface WidgetTools {
   /** List widgets, newest first. */
   @get list(@query limit?: int32, @header("x-page-token") pageToken?: string): CountedPage | Problem;
 
-  /** Fetch one widget by its identifier. */
+  /**
+   * Fetch one widget by its identifier.
+   *
+   * @param widgetId The identifier the widget was created with.
+   */
   @route("/{widgetId}") @get read(@path widgetId: string): Widget | NotFound | Throttled | Problem;
 
   /** Create a widget, or answer with the one that already has its name. */

@@ -89,6 +89,21 @@ describe("the documented Worker, on workerd, over a socket", () => {
 		}
 	});
 
+	it("publishes, to a real client, the description the spec gives an argument", async () => {
+		const client = await connect("writer-token");
+		try {
+			const read = (await client.listTools()).tools.find(
+				(tool) => tool.name === "WidgetTools_read",
+			);
+			expect(read?.inputSchema.properties?.["widgetId"]).toMatchObject({
+				type: "string",
+				description: "The identifier the widget was created with.",
+			});
+		} finally {
+			await client.close();
+		}
+	});
+
 	it("calls one, and the handler's value comes back as structured content", async () => {
 		const client = await connect("writer-token");
 		try {

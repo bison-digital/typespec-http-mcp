@@ -221,6 +221,29 @@ Every request also needs `_meta` carrying `io.modelcontextprotocol/protocolVersi
 
 ## Upgrading
 
+### To `0.3.0`
+
+`0.3.0` requires `typespec-http-zod` `0.29.0` and pairs with `typespec-hono` `0.26.0`; compile both
+into one directory only at versions that pair. Read the library's "To `0.29.0`" section: three of its
+changes make a tool refuse arguments it accepted, and in each the published document already refused
+them - a date-time header with no `@encode` is an HTTP-date, a scalar extending a constrained one is
+constrained by both, and `@encode(rfc3339)` on a date-time checks it.
+
+**Every argument in `tools/list` carries the description its spec gives it**: a parameter's
+`@param` text, a property's doc, a declared scalar's doc where the property has none. Nothing to
+change; a model calling the tool now reads what each field is for.
+
+**A path parameter decoded out of its URI segment takes its value as a tool argument.** For
+`{.param}`, `{;param}` or a segment with a literal around the expression, a tool validated the
+argument as the segment's text, so `{ param: "a" }` was refused, and a value starting with the
+route's literal was rewritten. A caller that worked around it by sending the segment text now sends
+the value, as `tools/list` always said.
+
+### Coming from `0.1.0`
+
+Read [To `0.2.0`](#to-020) as well: its changes apply in full, and the library's "To `0.27.0`" and
+"To `0.28.0`" sections with it.
+
 ### To `0.2.0`
 
 `0.2.0` requires `typespec-http-zod` `0.28.0` and pairs with `typespec-hono` `0.25.0`. `0.1.0` was
