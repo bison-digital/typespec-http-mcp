@@ -203,6 +203,23 @@ const diagnostics = {
 	 * contract no reader of the document could predict, and would put a whole upload through a model's
 	 * context window.
 	 */
+	/**
+	 * **An operation two of whose inputs would arrive as one argument is not a tool.**
+	 *
+	 * A tool's arguments are the path, query, header and cookie groups spread into one object, the
+	 * body merged or named beside them - the same input a server's handler receives. `@header("x")`
+	 * beside `@query("x")` therefore published one `x` argument, the later group's schema replacing
+	 * the earlier, and the handler was handed one value for two declarations (typespec-http-graphql,
+	 * 2026-10-16). `typespec-http-zod` names the pair in `EmittedRoute.sharedInputKeys` and reports it
+	 * as its own `shared-input-key`; this is the tool surface declining it, as `typespec-hono` declines
+	 * to mount it.
+	 */
+	"shared-input-key": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' is not a tool: ${"types"} would arrive as one argument, which holds one value. Give one of them a different name, or exclude the operation with 'exclude-tags'.`,
+		},
+	},
 	"binary-tool-input": {
 		severity: "warning",
 		messages: {
@@ -339,6 +356,7 @@ type Diagnostics = {
 	};
 	"unrepresentable-tool-name": { readonly default: CallableMessage<["name"]> };
 	"tool-name-collision": { readonly default: CallableMessage<["first", "second", "name"]> };
+	"shared-input-key": { readonly default: CallableMessage<["operationId", "types"]> };
 	"binary-tool-input": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-json-request": { readonly default: CallableMessage<["operationId", "types"]> };
 	"non-object-body": { readonly default: CallableMessage<["operationId", "types"]> };

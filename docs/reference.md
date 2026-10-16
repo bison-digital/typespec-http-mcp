@@ -229,6 +229,19 @@ Remedy: give each emitter its own `emitter-output-dir`, or set the same `seal-ob
 `compile-schemas`, `contracts-package`, `contracts-output-dir`, `key-vocabularies` and
 `regenerate-hint` on both.
 
+### `shared-input-key`
+
+Two inputs of the operation would arrive as one tool argument: `@header("x")` beside `@query("x")`,
+two `@query("x")`, a `@path id` beside a `@header("id")`, a parameter named as the body is. A tool's
+arguments are the parameter groups spread into one object, as a server's handler input is, so the
+later group's schema replaced the earlier and the handler was handed one value for two declarations.
+
+**Refused, as `typespec-hono` declines to mount it.** `typespec-http-zod` names the pair in
+`EmittedRoute.sharedInputKeys` and reports it as its own `shared-input-key`; this is the tool surface
+declining the operation, counted like every other refusal.
+
+Remedy: give one of the two a different name, or exclude the operation with `exclude-tags`.
+
 ### `binary-tool-input`
 
 The request body is raw bytes, a stream, or `multipart/form-data`. A tool's arguments are JSON.

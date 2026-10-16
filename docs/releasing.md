@@ -65,6 +65,30 @@ rather than that the emitter works: renaming one property in the consumer's hand
 property the contract does not publish -- fails with `TS2322`. Restored from a byte copy, `cmp`
 clean, green again.
 
+### `0.4.0`, rehearsed with the library and the server
+
+Published to the rehearsal registry at their release versions and real ranges:
+`typespec-http-zod@0.30.0`, `typespec-hono@0.27.0` and `typespec-http-mcp@0.4.0`, each manifest naming
+`"typespec-http-zod": "^0.30.0"`. Resolved in a clean room: one `typespec-http-zod@0.30.0` under both,
+`zod@4.6.7` (newer than this repository develops against), `@modelcontextprotocol/server@2.3.1`,
+`hono@4.13.13`, `@hono/zod-validator@0.9.1`, `@typespec/compiler@1.17.0`. The spec was
+typespec-http-graphql's report of 2026-10-16, compiled by both emitters into separate directories.
+
+| step                                                                                | result                                                                                  |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `tsp compile`, both emitters                                                        | exit 0; `shared-input-key` once each from the library, the server and this emitter      |
+| the `@encode` cycle, compiled alone                                                 | exit 1, one `encode-cycle` error, no crash                                              |
+| `tsc` over a hand-written consumer, `strict` + `exactOptionalPropertyTypes`         | exit 0; each handler input annotated with its decoded type, `Things_get` in neither set |
+| `GET /q?ids=1%7C2`, `/p/a,b`, `/h` with `x-tags: a,b`, `/c?tags=a,b`, `/s?tags=a,b` | 200 each; `[1, 2]`, `"a,b"`, `"a,b"`, `"a,b"`, `["a", "b"]` handed over                 |
+| `GET /dog`, the handler returning `kind: "wrongKind"`                               | 200                                                                                     |
+| `GET /t`, the handler returning the `void` 409                                      | 409, no `Content-Type`, empty body                                                      |
+| `GET /shared`                                                                       | 404: not mounted                                                                        |
+| `tools/list`                                                                        | seven tools, `Things_get` not among them; `P_read`'s `ids` is `{ "type": "string" }`    |
+| `tools/call` `P_read` with `"a,b"`, `Q_read` with `[1, 2]`, `getDog`                | each answered, the handler handed the value as sent, `getDog`'s unknown kind returned   |
+
+**And its control:** renaming the property in `Q_read`'s handler input fails with `TS2322`. Restored
+from a byte copy, `cmp` clean, green again.
+
 ## The cross-package rehearsal, when the library moves too
 
 `typespec-http-mcp@0.1.0` needs `typespec-http-zod@0.25.0`, which introduced

@@ -221,6 +221,19 @@ Every request also needs `_meta` carrying `io.modelcontextprotocol/protocolVersi
 
 ## Upgrading
 
+### To `0.4.0`
+
+`0.4.0` requires `typespec-http-zod` `0.30.0` and pairs with `typespec-hono` `0.27.0`; `0.3.0`'s range,
+`^0.29.0`, cannot reach that library, which is why this is a release rather than a lockfile bump. Read
+the library's "To `0.30.0`" section. For a tool surface:
+
+- **A discriminated base admits a value naming no subtype, as the base.** An argument with an unknown
+  `kind` is no longer refused. A handler narrowing on `kind` handles the base in the `default`.
+- **An operation two of whose inputs share one key is not a tool.** `shared-input-key` names it, the
+  key and both locations; rename one and the tool comes back.
+- **An operation whose request body is declared `void` or `never` is a tool**, where it was refused as
+  `non-object-body`.
+
 ### To `0.3.0`
 
 `0.3.0` requires `typespec-http-zod` `0.29.0` and pairs with `typespec-hono` `0.26.0`; compile both

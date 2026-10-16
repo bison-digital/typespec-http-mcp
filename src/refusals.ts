@@ -1,6 +1,6 @@
 import { getDiscriminator, type Program, type Type } from "@typespec/compiler";
 import type { HttpOperation } from "@typespec/http";
-import type { EmittedRoute, RouteSchemaNames } from "typespec-http-zod";
+import type { EmittedRoute, InputLocation, RouteSchemaNames } from "typespec-http-zod";
 import { unvalidatedResponsesOf } from "./bodies.js";
 
 /**
@@ -11,6 +11,15 @@ import { unvalidatedResponsesOf } from "./bodies.js";
  * arithmetically impossible. A WARNING leaves the tool in place and says something about its quality.
  * Conflating them would let a quality complaint quietly delete a tool.
  */
+
+/** How a `shared-input-key` refusal names where each of the two inputs comes from. */
+const INPUT_LOCATION_NOUNS: Readonly<Record<InputLocation, string>> = {
+	path: "path parameter",
+	query: "query parameter",
+	header: "header",
+	cookie: "cookie",
+	body: "body",
+};
 
 /** A media type a tool can actually send. `application/json`, and the `+json` structured suffix. */
 function isJson(contentType: string): boolean {
@@ -23,6 +32,7 @@ function isMultipart(contentType: string): boolean {
 }
 
 export type Refusal =
+	| { readonly kind: "shared-input-key"; readonly types: string }
 	| { readonly kind: "binary-tool-input"; readonly types: string }
 	| { readonly kind: "non-json-request"; readonly types: string }
 	| { readonly kind: "non-object-body"; readonly types: string }
@@ -84,6 +94,25 @@ export function refusalFor(
 	const types = route.requestContentTypes;
 
 	/**
+	 * **Two inputs under one key cannot both be arguments.** A tool's arguments are the parameter
+	 * groups spread into one object, as a server's handler input is, so `@header("x")` beside
+	 * `@query("x")` published one `x` whose later schema replaced the earlier, and the handler was
+	 * handed one value for two declarations. The library names every such pair; the operation is not
+	 * a tool, for the reason `typespec-hono` does not mount it.
+	 */
+	if (route.sharedInputKeys.length > 0) {
+		return {
+			kind: "shared-input-key",
+			types: route.sharedInputKeys
+				.map(
+					(shared) =>
+						`the ${INPUT_LOCATION_NOUNS[shared.first]} '${shared.key}' and the ${INPUT_LOCATION_NOUNS[shared.second]} '${shared.key}'`,
+				)
+				.join("; "),
+		};
+	}
+
+	/**
 	 * A raw body is bytes or a stream; a multipart body is parts, one of which is usually a file.
 	 * Neither is a JSON value, and encoding one into a string argument would put an upload through a
 	 * model's context window under a contract the document never stated.
@@ -116,7 +145,12 @@ export function refusalFor(
 	 * body is merged into the argument object, so it must have properties to merge.
 	 */
 	if (route.bodyProperty === undefined) {
-		const body = operation.parameters.body?.type;
+		/**
+		 * **A body declared `void` or `never` is no body**, and the library lists no media type for
+		 * one; read that way, there is nothing to merge. Read off the operation, its intrinsic type is
+		 * not an object and the tool was refused as `non-object-body`.
+		 */
+		const body = types.length === 0 ? undefined : operation.parameters.body?.type;
 		if (!isMergeableBody(program, body)) {
 			return { kind: "non-object-body", types: body?.kind ?? "unknown" };
 		}

@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0] - 2026-10-16
+
+Upgrading: [what to check before you take this](docs/guides.md#to-040).
+
+Requires `typespec-http-zod` 0.30.0 and pairs with `typespec-hono` 0.27.0.
+
+### Changed, breaking
+
+- **The validators move to `typespec-http-zod` 0.30.0**, which a `^0.29.0` range cannot reach, so this
+  is a release of its own rather than a lockfile bump. A discriminated base whose discriminator names
+  no subtype is now an argument the tool accepts, as the base, where it was refused; the document's
+  base admits it. A value naming a subtype is still that subtype. See [To 0.4.0](docs/guides.md#to-040).
+- **An operation two of whose inputs would arrive as one argument is not a tool**, and is reported as
+  `shared-input-key`. A tool's arguments spread the parameter groups into one object, so `@header("x")`
+  beside `@query("x")` published one `x` whose later schema replaced the earlier, and the handler was
+  handed one value for two declarations. The library names the pair in `EmittedRoute.sharedInputKeys`
+  and reports it too; this refusal is counted, so `emitted + refused === selected` still holds.
+
+### Fixed
+
+- **A request body declared `void` or `never` is no body**, so the operation is a tool with nothing to
+  merge. The library now lists no media type for such a body, and read off the operation its
+  intrinsic type was refused as `non-object-body`.
+
+### Added (graded, not shipped)
+
+- **`test/encodedlists`: an `@encode`d list argument is the type `tools/list` says**, and reaches the
+  handler unchanged. A path list under `@encode(ArrayEncoding.commaDelimited)` already was here: a
+  tool takes a decoded path parameter's value schema, which was `z.string()` while the library's
+  route validator split the segment. `0.30.0` fixes the route validator; this holds the tool's side.
+
 ## [0.3.0] - 2026-10-15
 
 Upgrading: [what to check before you take this](docs/guides.md#to-030).
