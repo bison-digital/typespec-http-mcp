@@ -1,6 +1,6 @@
 {
 	"name": "typespec-http-mcp",
-	"version": "0.8.0",
+	"version": "0.8.1",
 	"description": "TypeSpec emitter: generate an MCP tool surface, and the Zod validators it publishes, from an HTTP service definition, dispatching into the same handlers a generated HTTP server calls.",
 	"keywords": [
 		"cloudflare-workers",

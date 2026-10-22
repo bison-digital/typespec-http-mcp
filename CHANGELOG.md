@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1] - 2026-10-22
+
+A patch: no tool, validator, type or emitted code changes.
+
+### Changed
+
+- **Comments, documentation and test fixtures are rewritten in neutral terms.** The comments in
+  `mcp-runtime.gen.ts`, this package's runtime copied beside the generated code, are reworded, so
+  regenerated output differs in those comments and nowhere else.
+
 ## [0.8.0] - 2026-10-21
 
 Requires `typespec-http-zod` `0.34.0` and pairs with `typespec-hono` 0.31.0.
