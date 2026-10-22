@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Node major `engines` admits, which is `>=22`. Re-read Node's release schedule when
+        # that range moves.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+
+      # **Both packages are resolved from the registry, exactly as a consumer resolves them.** While
+      # they were unpublished, `pnpm-workspace.yaml` linked them and this job checked both siblings out
+      # beside this one to give the links a target. All of that went with the release that published
+      # them: a change spanning the three packages is again verifiable only by releasing in order,
+      # which `docs/releasing.md` is about.
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      # LAST, always, see the library's workflow for why.
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+      # A repository that calls itself idiomatic should not depend on whoever opens it next
+      # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
+      # written in (tabs) rather than imposing the tool's defaults on it.
+      - run: pnpm format:check
