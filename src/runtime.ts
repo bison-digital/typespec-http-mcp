@@ -655,6 +655,19 @@ export function toolError(error: unknown): CallToolResult {
 }
 
 /**
+ * A tool's answer as the 2026-07-28 wire carries it, so as a completed task holds it: with the
+ * `resultType: "complete"` every result of that revision carries.
+ *
+ * **A task's result is exactly what the call would have answered**, and McpServer adds the
+ * discriminator to a blocking answer on its way out. A task's result reaches the client inside
+ * `tasks/get` instead, where nothing adds it, and the Tasks extension's reference client refuses a
+ * completed result without it.
+ */
+export function completed(result: CallToolResult): CallToolResult {
+	return { ...result, resultType: "complete" };
+}
+
+/**
  * The MCP Tasks extension (`io.modelcontextprotocol/tasks`) lets a server answer `tools/call` with a
  * task handle, which the client polls with `tasks/get`, answers with `tasks/update` and stops with
  * `tasks/cancel`.

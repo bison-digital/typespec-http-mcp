@@ -442,7 +442,7 @@ export function renderTools(
 	const from = literal(DEFAULT_RUNTIME_MODULE);
 	const runtimeImport = [
 		...(entries.length > 0
-			? [`import { declaresTasks, toolError, toolResult } from ${from};`]
+			? [`import { completed, declaresTasks, toolError, toolResult } from ${from};`]
 			: []),
 		`import type { ${runtimeTypes.toSorted().join(", ")} } from ${from};`,
 	].join("\n");
@@ -614,11 +614,11 @@ export function renderTools(
 	const runCases = ordered
 		.map(
 			(entry) => `			case ${literal(entry.route.operationId)}:
-				return await toolResult(
+				return completed(await toolResult(
 					{ arms: ${entry.names.responses}, outputSchema: undefined${bodiesOf(entry)} },
 					${literal(entry.route.operationId)},
 					await handlers.${entry.route.operationId}(caller, call.input),
-				);`,
+				));`,
 		)
 		.join("\n");
 	const runTool =
@@ -632,7 +632,7 @@ export function renderTools(
 ${runCases}
 		}
 	} catch (error) {
-		return toolError(error);
+		return completed(toolError(error));
 	}
 }`;
 
@@ -730,7 +730,8 @@ export type ToolCall =${toolCalls};
  *
  * **Never throws.** A thrown error, and a result the document does not declare, answer the tool error
  * McpServer answers for them, so the task completes with \`isError\` exactly as the blocking call would
- * have. The Tasks extension reserves a \`failed\` task for a protocol error.
+ * have. The Tasks extension reserves a \`failed\` task for a protocol error. Every answer carries the
+ * \`resultType: "complete"\` the blocking answer carries on the wire.
  */
 ${runTool}
 `;

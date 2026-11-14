@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	CallToolResultV2Schema,
 	CreateTaskResultV2Schema,
 	GetTaskResultV2Schema,
 } from "@modelcontextprotocol/ext-tasks/core/v2";
@@ -188,12 +189,12 @@ function deploy(
 }
 
 /**
- * The tool result as a tool produced it: without what the SDK adds to every 2026-07-28 answer, the
- * `resultType: "complete"` discriminator and the `serverInfo` in `_meta`. A completed task carries
- * the tool's result itself, as the Tasks extension's own examples show it.
+ * The tool's answer as a completed task carries it: everything the blocking call answered, its
+ * `resultType: "complete"` included, but not the `serverInfo` the SDK adds to the envelope of every
+ * response, which describes the server rather than the call.
  */
 function asProduced(result: Record<string, unknown> | undefined): Record<string, unknown> {
-	const { _meta, resultType: _complete, ...rest } = result ?? {};
+	const { _meta, ...rest } = result ?? {};
 	const meta = { ...(_meta as Record<string, unknown> | undefined) };
 	delete meta[SERVER_INFO];
 	return Object.keys(meta).length === 0 ? rest : { ...rest, _meta: meta };
@@ -238,6 +239,7 @@ describe("a listed tool answers a request that declared the extension with a tas
 		expect(answer.result).not.toHaveProperty("resultType", "task");
 		expect(asProduced(answer.result)).toEqual({
 			content: [{ type: "text", text: '{"url":"https://example.test/c.csv","titles":3}' }],
+			resultType: "complete",
 		});
 		expect(decide).toHaveBeenCalledWith(EXPORT_CALL, CALLER, expect.anything());
 		expect(store.created).toEqual([]);
@@ -338,6 +340,8 @@ describe("runTool settles a task with exactly what the blocking call answers", (
 			});
 			const settled = await generated.runTool(handlers, EXPORT_CALL, CALLER);
 			expect(settled).toEqual(asProduced(blocking.result));
+			// What the Tasks extension's reference client decodes a completed task's result with.
+			expect(CallToolResultV2Schema.safeParse(settled).success).toBe(true);
 		});
 	}
 

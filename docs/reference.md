@@ -197,7 +197,8 @@ A tool may answer with an [MCP task](https://github.com/modelcontextprotocol/ext
 with `outputSchema` withheld, and answers what the blocking call answers. It never throws: a thrown
 error, an undeclared status and a body that breaks its schema answer
 `{ content: [{ type: "text", text: message }], isError: true }`, the result McpServer gives the
-blocking call. The extension requires such a task to complete, not fail.
+blocking call. Every answer carries `resultType: "complete"`, as the blocking answer does on the
+wire: a completed task's result reaches the client inside `tasks/get`, where nothing adds it. The extension requires such a task to complete, not fail.
 
 `TasksExtension` serves the capability and `tasks/get`, `tasks/update` and `tasks/cancel`:
 
