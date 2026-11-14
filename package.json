@@ -59,8 +59,9 @@
 	},
 	"devDependencies": {
 		"@hono/zod-validator": "^0.9.1",
-		"@modelcontextprotocol/client": "2.0.0",
-		"@modelcontextprotocol/server": "2.0.0",
+		"@modelcontextprotocol/client": "2.4.0",
+		"@modelcontextprotocol/ext-tasks": "0.2.3",
+		"@modelcontextprotocol/server": "2.4.0",
 		"@types/node": "^26.5.1",
 		"@typespec/compiler": "1.17.0",
 		"@typespec/events": "0.87.0",
@@ -85,7 +86,7 @@
 		"zod": "^4.6.2"
 	},
 	"peerDependencies": {
-		"@modelcontextprotocol/server": "^2.0.0",
+		"@modelcontextprotocol/server": "^2.3.0",
 		"@typespec/compiler": "^1.15.0",
 		"@typespec/http": "^1.15.0",
 		"@typespec/openapi": "^1.15.0",
