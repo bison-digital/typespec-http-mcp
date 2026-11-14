@@ -168,6 +168,29 @@ under each, `zod@4.6.5`.
 | `typespec-hono`'s, `typespec-postman`'s and `typespec-http-graphql`'s | 460, 253 and 1,280 passed                     |
 | `typespec-hono-example`'s generate, typecheck, bundle and smoke       | exit 0; its server byte-identical to 0.30.0's |
 
+### `0.9.0`, rehearsed with a Tasks client
+
+`typespec-http-mcp@0.9.0` was published to the rehearsal registry with
+`"typespec-http-zod": "^0.34.0"` and the peer `"@modelcontextprotocol/server": "^2.3.0"`. Resolved
+in a clean room: `typespec-http-zod@0.34.1`, `zod@4.6.7`, `@modelcontextprotocol/server@2.4.0`,
+`@typespec/compiler@1.18.0`. A bookshop spec with `getBook` and `exportCatalog`, served by a
+consumer that lists `exportCatalog` in `deps.tasks` over a store finishing each export after three
+seconds:
+
+| step                                                                                            | result                                                                                          |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `tsp compile spec/main.tsp`                                                                     | exit 0, three files emitted                                                                     |
+| `tsc` over the consumer, `strict` + `exactOptionalPropertyTypes` + `noUnusedLocals`             | exit 0                                                                                          |
+| control: `operations: ["deleteCatalog"]`                                                        | `TS2322`, `"deleteCatalog"` is not `"exportCatalog" \| "getBook"`; restored, `cmp` clean, green |
+| `@modelcontextprotocol/ext-tasks@0.2.3`'s client, pinned to 2026-07-28, declaring the extension | a task in 38 ms, polled each second as `pollIntervalMs` asks, completed at 3 s, result decoded  |
+| a released client application on 2026-07-28                                                     | declares the extension on discovery but not on `tools/call`, so answered inline, as required    |
+
+**The first run failed, and that is what the rehearsal is for.** The reference client decodes a
+completed task's `result` as a 2026-07-28 tool result, which carries `resultType: "complete"`, and
+`runTool`'s results did not: McpServer adds it to a blocking answer, and nothing adds it inside
+`tasks/get`. The conformance scenarios do not check it. Fixed before release, with the reference
+client's schema now asserted on every `runTool` result.
+
 ## The cross-package rehearsal, when the library moves too
 
 `typespec-http-mcp@0.1.0` needs `typespec-http-zod@0.25.0`, which introduced
