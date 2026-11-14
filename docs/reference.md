@@ -189,13 +189,17 @@ A tool may answer with an [MCP task](https://github.com/modelcontextprotocol/ext
 - **`deps.tasks.create(call, caller, context)`** answers the call. It is the application's, and
   normally returns `TasksExtension.create(context, { context: ... })`. A failing `create` answers
   the tool error McpServer makes of it.
+- **`registerTools` throws when `operations` is not empty and no `TasksExtension` is attached** to
+  the server: a task it created would be one the server does not advertise and nobody could poll.
 - **A listed tool publishes no `outputSchema`**, on every request: the SDK turns a task from a tool
   that publishes one into a tool error. Its results carry the body as text. `operations` is read when
   `registerTools` runs, as `permits` is.
 
 `runTool(handlers, call, caller)` runs a call through its handler and the tool's declared responses
-with `outputSchema` withheld, and answers what the blocking call answers. It never throws: a thrown
-error, an undeclared status and a body that breaks its schema answer
+with `outputSchema` withheld, and answers what the blocking call of a listed tool answers. It throws
+only for a call naming an operation the service has no tool for, a fault below the tool that a store
+settles as `failed`. Otherwise a thrown error, an undeclared status and a body that breaks its schema
+answer
 `{ content: [{ type: "text", text: message }], isError: true }`, the result McpServer gives the
 blocking call. Every answer carries `resultType: "complete"`, as the blocking answer does on the
 wire: a completed task's result reaches the client inside `tasks/get`, where nothing adds it. The extension requires such a task to complete, not fail.

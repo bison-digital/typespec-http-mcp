@@ -261,10 +261,15 @@ import { runTool } from "./generated/mcp.gen.js";
 const result = await runTool(handlers, call, caller); // a CallToolResult; it never throws
 ```
 
-It answers what the tool would have answered, through the same declared responses. A declared
-failure, a result the document does not declare and a thrown error all answer the tool error the
-blocking call answers, so the task completes with `isError`, as the extension requires. Mark a task
-`failed` only when the work fails below the tool, with a JSON-RPC error.
+It answers what a listed tool answers, through the same declared responses. A declared failure, a
+result the document does not declare and a thrown error all answer the tool error the blocking call
+answers, so the task completes with `isError`, as the extension requires. Mark a task `failed` only
+when the work fails below the tool, with a JSON-RPC error. `runTool` itself throws for one such
+fault: a call naming an operation this service has no tool for, which a store shared by several
+services, or a task that outlived a deploy removing its operation, can hand it.
+
+`registerTools` throws when `deps.tasks` lists an operation and no `TasksExtension` is attached to the
+server: its tasks could not be polled. Attach first.
 
 ### A store on Cloudflare Workflows
 
@@ -280,13 +285,16 @@ way to stop it and a way to send it an event.
 
 The Workflow's `run` calls `runTool` and returns its result, which `status()` then reports as
 `output`. Map `complete` to `completed` with that output as the `result`, `errored` to `failed` with
-a `-32603` error, `terminated` to `cancelled`, and every other status to `working`. Four things the
-mapping does not give you:
+a `-32603` error, `terminated` to `cancelled`, and every other status to `working`. What the
+mapping does not give you, per the
+[Workflows Workers API](https://developers.cloudflare.com/workflows/build/workers-api/):
 
+- **Unknown ids.** `get` throws for an instance id that does not exist; the store answers
+  `undefined`, which the extension answers as "Task not found".
 - **The principal and the creation time.** `status()` does not return an instance's params, so keep
   them where `get` can check them, a KV namespace or a D1 row, written before `create` resolves.
-- **Idempotent cancellation.** `terminate()` throws on an instance that has finished, and the
-  extension requires cancelling a finished task to succeed, so treat that as done.
+- **Idempotent cancellation.** `terminate()` throws on an instance that is errored, terminated or
+  complete, and the extension requires cancelling a finished task to succeed, so treat that as done.
 - **Outstanding input.** A Workflow waiting on `step.waitForEvent` reports `waiting`, not what it is
   waiting for. Record the `inputRequests` a task has asked, and report `input_required` with them.
 - **Retention.** Give the instance at least the task's `ttlMs`.

@@ -12,11 +12,13 @@ Upgrading: [what to check before you take this](docs/guides.md#to-090).
   per call between a task and an inline answer, and creates the task. A request that did not
   declare the extension is always answered inline. A listed tool publishes no `outputSchema`.
 - **`ToolCall` and `runTool`** in `mcp.gen.ts`. `runTool` runs a call through the same handler and
-  the same declared responses as the tool, so the work behind a task settles with exactly what the
-  blocking call answers.
+  the same declared responses as a listed tool, so the work behind a task settles with exactly what
+  the blocking call answers. It throws only for an operation the service has no tool for.
+- `registerTools` refuses a task policy on a server no Tasks extension is attached to, whose tasks
+  nobody could poll.
 - **`TasksExtension`** in the runtime, over an application's `TaskStore`. `attach(server)` serves
   the capability and `tasks/get`, `tasks/update` and `tasks/cancel`; `create` answers a call with a
-  task bound to its caller. The declarations have the shape of the MCP SDK's own Tasks extension,
+  task bound to the caller's principal when the request is authenticated. The declarations have the shape of the MCP SDK's own Tasks extension,
   which no release carries yet. Also `declaresTasks`, `toolError` and the task types.
 
 ### Changed

@@ -366,6 +366,27 @@ describe("runTool settles a task with exactly what the blocking call answers", (
 	});
 });
 
+describe("what the generated code refuses rather than gets wrong", () => {
+	it("refuses a call for an operation this module does not have, so the store can fail the task", async () => {
+		await expect(
+			generated.runTool(handlers, { operationId: "deleteCatalog", input: {} }, CALLER),
+		).rejects.toThrow(/deleteCatalog/);
+	});
+
+	it("refuses a task policy on a server the Tasks extension is not attached to", () => {
+		const server = new McpServer({ name: "bookshop", version: "1.0.0" });
+		const extension = new runtime.TasksExtension(new MemoryStore());
+		expect(() =>
+			generated.registerTools(server, () => handlers, {
+				permits: () => true,
+				context: () => CALLER,
+				noContext: () => ({ content: [], isError: true }),
+				tasks: listingExport()(extension),
+			}),
+		).toThrow(/attach/);
+	});
+});
+
 describe("the policy is typed by the generated tools", () => {
 	it("accepts the wiring the documentation shows and refuses an operation that is not a tool", () => {
 		writeFileSync(

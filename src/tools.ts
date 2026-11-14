@@ -442,7 +442,9 @@ export function renderTools(
 	const from = literal(DEFAULT_RUNTIME_MODULE);
 	const runtimeImport = [
 		...(entries.length > 0
-			? [`import { completed, declaresTasks, toolError, toolResult } from ${from};`]
+			? [
+					`import { completed, declaresTasks, requireTasksAttached, toolError, toolResult } from ${from};`,
+				]
 			: []),
 		`import type { ${runtimeTypes.toSorted().join(", ")} } from ${from};`,
 	].join("\n");
@@ -621,12 +623,19 @@ export function renderTools(
 				));`,
 		)
 		.join("\n");
+	const unknownCall =
+		"throw new Error(`No tool of this service runs ${JSON.stringify((call as { readonly operationId?: unknown }).operationId)}.`);";
 	const runTool =
 		ordered.length === 0
 			? `export async function runTool<C>(_handlers: Tools<C>, call: ToolCall, _caller: C): Promise<CallToolResult> {
-	return call;
+	${unknownCall}
 }`
-			: `export async function runTool<C>(handlers: Tools<C>, call: ToolCall, caller: C): Promise<CallToolResult> {
+			: `const TOOL_OPERATIONS: ReadonlySet<string> = new Set([${ordered.map((entry) => literal(entry.route.operationId)).join(", ")}]);
+
+export async function runTool<C>(handlers: Tools<C>, call: ToolCall, caller: C): Promise<CallToolResult> {
+	if (!TOOL_OPERATIONS.has(call.operationId)) {
+		${unknownCall}
+	}
 	try {
 		switch (call.operationId) {
 ${runCases}
@@ -713,7 +722,7 @@ export function registerTools<C, T extends Tools<C>>(
 	${u}handlersFor: (context: ServerContext) => ToolsExhaustive<T>,
 	${u}deps: ToolDeps<C, ToolCall>,
 ): readonly string[] {
-	const registered: string[] = [];${entries.length === 0 ? "" : "\n\tconst taskable = new Set<string>(deps.tasks?.operations ?? []);"}
+	const registered: string[] = [];${entries.length === 0 ? "" : "\n\tconst taskable = new Set<string>(deps.tasks?.operations ?? []);\n\tif (taskable.size > 0) requireTasksAttached(server);"}
 ${registrations}
 	return registered;
 }
@@ -725,10 +734,15 @@ ${registrations}
 export type ToolCall =${toolCalls};
 
 /**
- * Run one tool call through its handler and its declared responses, and answer what the tool would
- * have answered: the work behind a task settles with this.
+ * Run one tool call through its handler and its declared responses, and answer what the tool answers
+ * when \`deps.tasks\` lists it, which publishes no \`outputSchema\` and so carries no
+ * \`structuredContent\`: the work behind a task settles with this.
  *
- * **Never throws.** A thrown error, and a result the document does not declare, answer the tool error
+ * **Throws only for a call naming an operation this service has no tool for**, as a store shared by
+ * several services, or a task that outlived a deploy removing its operation, can hand it. That is a
+ * fault below the tool: settle the task \`failed\`, not \`completed\`.
+ *
+ * **Otherwise it never throws.** A thrown error, and a result the document does not declare, answer the tool error
  * McpServer answers for them, so the task completes with \`isError\` exactly as the blocking call would
  * have. The Tasks extension reserves a \`failed\` task for a protocol error. Every answer carries the
  * \`resultType: "complete"\` the blocking answer carries on the wire.

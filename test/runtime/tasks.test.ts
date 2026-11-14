@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/ext-tasks/core/v2";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
 	type CreateTaskParams,
 	declaresTasks,
@@ -335,6 +336,17 @@ describe("attach", () => {
 		const tasks = new TasksExtension(new MemoryStore());
 		tasks.attach(server);
 		expect(() => tasks.attach(server)).not.toThrow();
+	});
+
+	it("refuses a server that already answers a tasks/* method, and leaves it as it was", () => {
+		const server = new McpServer({ name: "tasks", version: "1.0.0" });
+		server.server.setRequestHandler(
+			"tasks/get",
+			{ params: z.object({ taskId: z.string() }) },
+			() => ({}),
+		);
+		expect(() => new TasksExtension(new MemoryStore()).attach(server)).toThrow(/already exists/);
+		expect(server.server.getCapabilities().extensions).toBeUndefined();
 	});
 
 	it("refuses a second Tasks extension on one server, which would silently replace the first", () => {

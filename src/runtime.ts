@@ -628,6 +628,9 @@ export interface ToolTasks<C, Call extends ToolCallShape> {
 	 *
 	 * Receives the validated input and the caller, so the answer can depend on the application's own
 	 * state: work that is already finished can be answered at once.
+	 *
+	 * Type `call` as the whole `ToolCall` and narrow on `operationId`: as a method, this accepts a
+	 * narrower parameter without complaint, and receives every listed operation's call regardless.
 	 */
 	decide?(call: Call, caller: C, context: ServerContext): Awaitable<"task" | "inline">;
 
@@ -652,6 +655,20 @@ export function toolError(error: unknown): CallToolResult {
 		content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
 		isError: true,
 	};
+}
+
+/**
+ * Refuses a task policy on a server no {@link TasksExtension} is attached to. A tool there would
+ * answer with a task the server does not advertise and nobody can poll: `tasks/get` would be an
+ * unknown method. Called by `registerTools` when the policy lists an operation.
+ */
+export function requireTasksAttached(server: McpServer): void {
+	if (server.server.getCapabilities().extensions?.[TASKS_EXTENSION_ID] === undefined) {
+		throw new Error(
+			"deps.tasks lists operations, but no Tasks extension is attached to this server. " +
+				"Call attach(server) on a TasksExtension before registerTools, or the tasks it creates cannot be polled.",
+		);
+	}
 }
 
 /**
@@ -887,6 +904,10 @@ export class TasksExtension {
 			throw new Error(
 				`A Tasks extension is already attached to this server; one server serves one task store.`,
 			);
+		}
+		// Every method checked before any is registered, so a refusal leaves the server as it was.
+		for (const method of ["tasks/get", "tasks/update", "tasks/cancel"]) {
+			protocol.assertCanSetRequestHandler(method);
 		}
 		protocol.registerCapabilities({ extensions: { [TASKS_EXTENSION_ID]: {} } });
 
