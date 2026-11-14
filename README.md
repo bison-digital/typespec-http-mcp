@@ -107,21 +107,59 @@ What the model receives follows from the document:
 - `structuredContent` carries the body when its schema is the tool's `outputSchema`;
 - response headers are carried in `_meta["typespec-http-mcp/response-headers"]`, keyed by wire name.
 
+## Long-running tools and MCP Tasks
+
+Some tools finish long after the request that started them: an export, a reply a person has to give,
+a job on a queue. A client that supports the
+[MCP Tasks extension](https://github.com/modelcontextprotocol/ext-tasks) can take a task handle at
+once and poll for the result.
+
+**Which tools may do that is decided where you wire them, never in the spec.** The extension has no
+per-tool declaration, and whether work outlives a request is a fact about where you run it, not
+about the operation. Add a `tasks` policy to `deps`, and attach the runtime's `TasksExtension`,
+over a store of yours, to the server:
+
+```ts
+import { registerTools, type ToolCall } from "./generated/mcp.gen.js";
+import { TasksExtension, type ToolDeps } from "./generated/mcp-runtime.gen.js";
+
+const tasks = new TasksExtension(store); // your TaskStore: a Durable Object, a Workflow, a table
+
+// in the factory above
+const deps: ToolDeps<AuthInfo, ToolCall> = {
+	// permits, context and noContext, as above, and:
+	tasks: {
+		operations: ["exportCatalog"],
+		create: (call, caller, serverContext) =>
+			tasks.create(serverContext, { context: { call, caller: caller.clientId } }),
+	},
+};
+const server = new McpServer({ name: "bookshop", version: "1.0.0" });
+tasks.attach(server);
+registerTools(server, () => handlers, deps);
+```
+
+The work behind a task runs the same handler through `runTool(handlers, call, caller)`, which
+answers exactly what the tool would have, so a completed task holds the blocking call's result. A
+client that did not declare the extension is answered inline, as before. See
+[the guide](docs/guides.md#running-long-tools-as-mcp-tasks) and
+[the reference](docs/reference.md#tasks).
+
 ## What is derived, and from what
 
 Nothing is invented. Every field of a tool comes from something the document already states, or from
 a published specification:
 
-| tool field                   | derived from                                         |
-| ---------------------------- | ---------------------------------------------------- |
-| `name`                       | the operation id the document publishes              |
-| `title`                      | `@summary`                                           |
-| `description`                | `@doc`                                               |
-| `inputSchema`                | the emitted Zod schema, **input** projection         |
-| `outputSchema`               | the body every 2xx and 3xx status shares             |
-| `annotations.readOnlyHint`   | the method's safety, per IANA's HTTP Method Registry |
-| `annotations.idempotentHint` | the method's idempotence, same source                |
-| which operations are tools   | `@tag`, which `@typespec/openapi3` publishes         |
+| tool field                   | derived from                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `name`                       | the operation id the document publishes                                          |
+| `title`                      | `@summary`                                                                       |
+| `description`                | `@doc`                                                                           |
+| `inputSchema`                | the emitted Zod schema, **input** projection                                     |
+| `outputSchema`               | the body every 2xx and 3xx status shares, unless the tool may answer with a task |
+| `annotations.readOnlyHint`   | the method's safety, per IANA's HTTP Method Registry                             |
+| `annotations.idempotentHint` | the method's idempotence, same source                                            |
+| which operations are tools   | `@tag`, which `@typespec/openapi3` publishes                                     |
 
 There are **no decorators**. A decorator would let a spec state something the OpenAPI document
 cannot publish, so the emitted surface would enforce a rule no reader of the contract can see.

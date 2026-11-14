@@ -200,6 +200,105 @@ object like this one through both surfaces and holds every operation's signature
 **If the options differ, the emitters silently overwrite each other and the order of `emit:` decides
 the winner.** `shared-output-dir` warns about exactly that case; see `docs/reference.md`.
 
+## Running long tools as MCP tasks
+
+A tool whose work outlives a request can answer a client that supports the
+[MCP Tasks extension](https://github.com/modelcontextprotocol/ext-tasks) with a task handle at once.
+The client polls `tasks/get` for the result, answers `tasks/update` when the task asks for input, and
+stops it with `tasks/cancel`.
+
+Nothing in the spec changes. Three things are added where you wire the tools:
+
+1. **A store**, implementing the runtime's `TaskStore`: where tasks live and how their work is found.
+2. **The extension**, `new TasksExtension(store)`, attached to each server before it connects. It
+   serves the capability and the three `tasks/*` methods.
+3. **A policy**, `deps.tasks`: which operations may answer with a task, and how one is created.
+
+```ts
+import { McpServer, createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
+import { registerTools, type ToolCall } from "./generated/mcp.gen.js";
+import { TasksExtension, type ToolDeps } from "./generated/mcp-runtime.gen.js";
+import { handlers } from "./handlers.js";
+import { store } from "./tasks.js"; // your TaskStore
+
+/** One extension for the deployment: the factory below builds a server per request. */
+const tasks = new TasksExtension(store);
+
+const handler = createMcpHandler((context) => {
+	const deps: ToolDeps<AuthInfo, ToolCall> = {
+		permits: () => true,
+		context: (serverContext) => serverContext.http?.authInfo ?? null,
+		noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
+		tasks: {
+			operations: ["exportCatalog"],
+			// Optional: answer at once when there is nothing to wait for.
+			decide: (call) => (call.operationId === "exportCatalog" ? "task" : "inline"),
+			create: (call, caller, serverContext) =>
+				tasks.create(serverContext, { context: { call, caller: caller.clientId } }),
+		},
+	};
+
+	const server = new McpServer({ name: "bookshop", version: "1.0.0" });
+	tasks.attach(server);
+	registerTools(server, () => handlers, deps);
+	return server;
+});
+```
+
+**`ToolDeps<AuthInfo, ToolCall>`, with the generated `ToolCall`**, is what types the policy:
+`operations` accepts only this service's operations, and `decide` and `create` receive the call with
+its validated input. `ToolDeps<AuthInfo>` admits no operation.
+
+**`create` chooses what the store keeps.** `call` is plain JSON, the operation and its input. The
+caller is yours to reduce to what your work needs to rebuild it, because a task's work runs later,
+somewhere the request's context is gone.
+
+**The work runs the same handler through `runTool`:**
+
+```ts
+import { runTool } from "./generated/mcp.gen.js";
+
+const result = await runTool(handlers, call, caller); // a CallToolResult; it never throws
+```
+
+It answers what the tool would have answered, through the same declared responses. A declared
+failure, a result the document does not declare and a thrown error all answer the tool error the
+blocking call answers, so the task completes with `isError`, as the extension requires. Mark a task
+`failed` only when the work fails below the tool, with a JSON-RPC error.
+
+### A store on Cloudflare Workflows
+
+A Workflow is close to a task already: an instance with an id you choose, a status, an output, a
+way to stop it and a way to send it an event.
+
+| store method | Workflow                                                                 |
+| ------------ | ------------------------------------------------------------------------ |
+| `create`     | `env.WORK.create({ id: crypto.randomUUID(), params })`                   |
+| `get`        | `(await env.WORK.get(taskId)).status()`                                  |
+| `update`     | `instance.sendEvent({ type, payload })`, received by `step.waitForEvent` |
+| `cancel`     | `instance.terminate()`                                                   |
+
+The Workflow's `run` calls `runTool` and returns its result, which `status()` then reports as
+`output`. Map `complete` to `completed` with that output as the `result`, `errored` to `failed` with
+a `-32603` error, `terminated` to `cancelled`, and every other status to `working`. Four things the
+mapping does not give you:
+
+- **The principal and the creation time.** `status()` does not return an instance's params, so keep
+  them where `get` can check them, a KV namespace or a D1 row, written before `create` resolves.
+- **Idempotent cancellation.** `terminate()` throws on an instance that has finished, and the
+  extension requires cancelling a finished task to succeed, so treat that as done.
+- **Outstanding input.** A Workflow waiting on `step.waitForEvent` reports `waiting`, not what it is
+  waiting for. Record the `inputRequests` a task has asked, and report `input_required` with them.
+- **Retention.** Give the instance at least the task's `ttlMs`.
+
+### What a task does not do
+
+- **A client that did not declare the extension is answered inline**, as if no policy were set. The
+  extension also allows refusing it with `-32021`, but thrown from a tool, the SDK this package
+  supports answers `-32021` as a tool error instead, so that answer waits for an SDK that passes it
+  through. Do not list an operation that cannot run inline.
+- **Tasks are polled.** `notifications/tasks` is not served.
+
 ## Testing a generated tool surface
 
 Three things will cost you a confusing failure if you do not know them. Put them in one helper.
@@ -220,6 +319,15 @@ Every request also needs `_meta` carrying `io.modelcontextprotocol/protocolVersi
 `clientCapabilities`.
 
 ## Upgrading
+
+### To `0.9.0`
+
+`0.9.0` requires `@modelcontextprotocol/server` `^2.3.0`, the first release that routes `tasks/get`
+to a registered handler. Nothing else is required of you: wiring written for `0.8` compiles and
+behaves as it did, `ToolDeps<Caller>` included. Regenerated output differs: `mcp.gen.ts` gains
+`ToolCall` and `runTool` and a branch in each tool for a task, and the runtime gains the Tasks
+extension. None of it runs until you set `deps.tasks`; see
+[Running long tools as MCP tasks](#running-long-tools-as-mcp-tasks).
 
 ### To `0.7.0`
 

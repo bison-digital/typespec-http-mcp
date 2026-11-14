@@ -143,7 +143,19 @@ describe("the documentation set holds together", () => {
 	it("every document the README links to exists", () => {
 		const linked = [...readme.matchAll(/\]\((docs\/[^)]+)\)/g)].map((m) => m[1] ?? "");
 		expect(linked.length).toBeGreaterThanOrEqual(5);
-		const missing = linked.filter((doc) => !existsSync(join(packageRoot, doc)));
+		/** GitHub's heading anchor: lower case, punctuation dropped, spaces as hyphens. */
+		const anchorOf = (heading: string) =>
+			heading
+				.toLowerCase()
+				.replace(/[^a-z0-9 -]/g, "")
+				.replaceAll(" ", "-");
+		const missing = linked.filter((link) => {
+			const [doc = "", fragment] = link.split("#");
+			if (!existsSync(join(packageRoot, doc))) return true;
+			if (fragment === undefined) return false;
+			const headings = [...readFileSync(join(packageRoot, doc), "utf8").matchAll(/^#+ (.+)$/gm)];
+			return !headings.some((heading) => anchorOf(heading[1] ?? "") === fragment);
+		});
 		expect(missing).toEqual([]);
 	});
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.9.0] - 2026-11-14
+
+Upgrading: [what to check before you take this](docs/guides.md#to-090).
+
+### Added
+
+- **A tool may answer with an MCP task**, for a client that declares the
+  [Tasks extension](https://github.com/modelcontextprotocol/ext-tasks). Which tools may is decided
+  where the application wires them, never in the spec: `deps.tasks` lists the operations, may decide
+  per call between a task and an inline answer, and creates the task. A request that did not
+  declare the extension is always answered inline. A listed tool publishes no `outputSchema`.
+- **`ToolCall` and `runTool`** in `mcp.gen.ts`. `runTool` runs a call through the same handler and
+  the same declared responses as the tool, so the work behind a task settles with exactly what the
+  blocking call answers.
+- **`TasksExtension`** in the runtime, over an application's `TaskStore`. `attach(server)` serves
+  the capability and `tasks/get`, `tasks/update` and `tasks/cancel`; `create` answers a call with a
+  task bound to its caller. The declarations have the shape of the MCP SDK's own Tasks extension,
+  which no release carries yet. Also `declaresTasks`, `toolError` and the task types.
+
+### Changed
+
+- **Requires `@modelcontextprotocol/server` `^2.3.0`**, the first release that routes `tasks/get` to a
+  registered handler.
+
+### Not yet
+
+- Refusing a client that did not declare the extension with `-32021`, which the extension allows
+  for a tool that cannot run inline. Thrown from a tool, SDK 2.4.0 answers it as a tool error.
+- `notifications/tasks`. Tasks are polled.
+
 ## [0.8.1] - 2026-10-22
 
 A patch: no tool, validator, type or emitted code changes.

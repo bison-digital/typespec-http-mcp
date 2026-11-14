@@ -175,6 +175,54 @@ this emitter mounts no validation of its own.
 the document declares it; a bad argument carries the SDK's message instead. That asymmetry is stated
 here rather than left to be discovered.
 
+## Tasks
+
+A tool may answer with an [MCP task](https://github.com/modelcontextprotocol/ext-tasks) when
+`deps.tasks` lists its operation. The rules, in the order a call meets them:
+
+- **Only a request that declared the extension can get a task.** Its
+  `io.modelcontextprotocol/clientCapabilities` must name `io.modelcontextprotocol/tasks`, on that
+  request, whatever an earlier one declared. Any other request is answered inline, and the policy is
+  not consulted.
+- **`deps.tasks.decide(call, caller, context)`** then chooses `"task"` or `"inline"`. Absent, it is
+  `"task"`.
+- **`deps.tasks.create(call, caller, context)`** answers the call. It is the application's, and
+  normally returns `TasksExtension.create(context, { context: ... })`. A failing `create` answers
+  the tool error McpServer makes of it.
+- **A listed tool publishes no `outputSchema`**, on every request: the SDK turns a task from a tool
+  that publishes one into a tool error. Its results carry the body as text. `operations` is read when
+  `registerTools` runs, as `permits` is.
+
+`runTool(handlers, call, caller)` runs a call through its handler and the tool's declared responses
+with `outputSchema` withheld, and answers what the blocking call answers. It never throws: a thrown
+error, an undeclared status and a body that breaks its schema answer
+`{ content: [{ type: "text", text: message }], isError: true }`, the result McpServer gives the
+blocking call. The extension requires such a task to complete, not fail.
+
+`TasksExtension` serves the capability and `tasks/get`, `tasks/update` and `tasks/cancel`:
+
+| request                                                    | answer                                |
+| ---------------------------------------------------------- | ------------------------------------- |
+| from a client that did not declare the extension           | `-32021`, naming it as required       |
+| on `2025-11-25`, where these names meant other methods     | `-32601`                              |
+| for a task the store does not find, or another principal's | `-32602` "Task not found", alike      |
+| `tasks/update` with an entry that is not a bare result     | `-32602`                              |
+| otherwise                                                  | the task, or an empty acknowledgement |
+
+A task is bound to the principal of the request that created it: the OAuth client id, with the
+token subject when the verifier puts one at `authInfo.extra.sub`, or what the `principal` option
+returns. With no authentication there is no principal, and a task's id is its only credential.
+
+The store's contract, which the extension relies on and cannot check:
+
+- `create` resolves only once a following `get` finds the task.
+- Task ids are unguessable.
+- `get`, `update` and `cancel` answer `undefined` or `false` for another principal's task.
+- `cancel` succeeds on a finished task.
+
+The declarations have the shape of the MCP SDK's own Tasks extension, which no release carries yet,
+so a store written for one serves the other.
+
 ## Diagnostics
 
 **Every diagnostic about the document is a warning, never errors.** A TypeSpec `error` sets `program.hasError()`
