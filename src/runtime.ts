@@ -1,5 +1,12 @@
-import type { CallToolResult, McpServer, ServerContext } from "@modelcontextprotocol/server";
-import type { ZodError, ZodType } from "zod";
+import {
+	type CallToolResult,
+	type McpServer,
+	MissingRequiredClientCapabilityError,
+	ProtocolError,
+	ProtocolErrorCode,
+	type ServerContext,
+} from "@modelcontextprotocol/server";
+import { z, type ZodError, type ZodType } from "zod";
 
 /**
  * **What generated code imports at run time -- and the only thing this package puts in its output.**
@@ -528,7 +535,7 @@ export async function toolResult(
  * **`C` is the caller context, and `registerTools` INFERS it from `context`.** An application whose
  * `context` returns a `Caller` has handlers typed `(ctx: Caller, input)`, with nothing to declare.
  */
-export interface ToolDeps<C = unknown> {
+export interface ToolDeps<C = unknown, Call extends ToolCallShape = ToolCallShape> {
 	/**
 	 * Whether the caller this server was built for may SEE this tool.
 	 *
@@ -571,4 +578,328 @@ export interface ToolDeps<C = unknown> {
 
 	/** The result when {@link context} returns `null`. The application's to decide. */
 	readonly noContext: (context: ServerContext) => CallToolResult;
+
+	/**
+	 * Which tools may answer with an MCP task, and how a task is created. Absent, no tool ever does.
+	 *
+	 * **The application's to decide, because the document cannot say it.** The Tasks extension has
+	 * no per-tool declaration: the server decides on each request whether to answer with a task.
+	 * Whether a tool's work outlives a request is a fact about where the application runs it, not
+	 * about the operation.
+	 */
+	readonly tasks?: ToolTasks<C, Call>;
+}
+
+/** What a tool call is, to the code that runs it later: the operation and its validated input. */
+export interface ToolCallShape {
+	readonly operationId: string;
+	readonly input: unknown;
+}
+
+/**
+ * The application's task policy for the tools one `registerTools` call registers.
+ *
+ * **A request that did not declare the Tasks extension never reaches this policy.** It is answered
+ * inline, as if no policy were configured, because the extension forbids answering it with a task.
+ */
+export interface ToolTasks<C, Call extends ToolCallShape> {
+	/**
+	 * The operations that may answer with a task.
+	 *
+	 * **Read at REGISTRATION, like `permits`**, because it changes what is published: a tool listed
+	 * here publishes no `outputSchema`. The SDK refuses a task from a tool that publishes one, so a
+	 * task tool is an ordinary tool without it, on every request.
+	 */
+	readonly operations: readonly Call["operationId"][];
+
+	/**
+	 * Whether THIS call becomes a task or runs inline. Consulted only for a listed operation and a
+	 * request that declared the extension. Absent, every such call becomes a task.
+	 *
+	 * Receives the validated input and the caller, so the answer can depend on the application's own
+	 * state: work that is already finished can be answered at once.
+	 */
+	readonly decide?: (call: Call, caller: C, context: ServerContext) => Awaitable<"task" | "inline">;
+
+	/**
+	 * Create the task and answer with its handle. In practice
+	 * `(call, caller, context) => tasks.create(context, { context: { ...call, ... } })`, where the
+	 * application chooses what the store needs to find or start the work: the call, an identifier
+	 * for the caller, a service name when one store serves several services.
+	 */
+	readonly create: (call: Call, caller: C, context: ServerContext) => Promise<TaskToolResult>;
+}
+
+/**
+ * The result McpServer answers when a tool callback throws: the message as text, marked as an error.
+ *
+ * Exported so the work behind a task settles a thrown error exactly as the blocking call would have
+ * answered it. The Tasks extension requires a tool error to complete the task with that result,
+ * and reserves `failed` for a protocol error.
+ */
+export function toolError(error: unknown): CallToolResult {
+	return {
+		content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+		isError: true,
+	};
+}
+
+/**
+ * The MCP Tasks extension (`io.modelcontextprotocol/tasks`) lets a server answer `tools/call` with a
+ * task handle, which the client polls with `tasks/get`, answers with `tasks/update` and stops with
+ * `tasks/cancel`.
+ *
+ * **The declarations below have the shape of the SDK's own Tasks extension**, which is not yet in a
+ * release. A store written against them satisfies the SDK's `TaskStore` as well, so adopting the
+ * SDK's extension replaces one import and one `attach` call, and nothing else.
+ */
+export const TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks";
+
+/** A task's state, as every task-related message carries it. */
+export interface Task {
+	readonly taskId: string;
+	readonly status: "working" | "input_required" | "completed" | "cancelled" | "failed";
+	readonly statusMessage?: string;
+	/** ISO 8601. */
+	readonly createdAt: string;
+	/** ISO 8601. */
+	readonly lastUpdatedAt: string;
+	/** Retention from creation, in milliseconds; `null` is unlimited. */
+	readonly ttlMs: number | null;
+	/** How often a client should poll, in milliseconds. */
+	readonly pollIntervalMs?: number;
+}
+
+/**
+ * What `tasks/get` answers: the task, with what its status carries.
+ *
+ * **`completed` carries the `CallToolResult` the call would have returned, `isError` included.**
+ * `failed` is only for a protocol error during execution, never for a tool that answered an error.
+ */
+export type DetailedTask =
+	| (Task & { readonly status: "working" })
+	| (Task & {
+			readonly status: "input_required";
+			readonly inputRequests: Readonly<Record<string, unknown>>;
+	  })
+	| (Task & { readonly status: "completed"; readonly result: Readonly<Record<string, unknown>> })
+	| (Task & { readonly status: "failed"; readonly error: Readonly<Record<string, unknown>> })
+	| (Task & { readonly status: "cancelled" });
+
+/** A tool's answer when its work continues as a task. */
+export type CreateTaskResult = Task & { readonly resultType: "task" };
+
+/** The handle a tool callback returns in place of a `CallToolResult`. */
+export type TaskToolResult = CallToolResult & CreateTaskResult;
+
+/** What the extension asks a store to create. */
+export interface CreateTaskParams {
+	/** Retention from creation, in milliseconds; `null` is unlimited. */
+	readonly ttlMs: number | null;
+	readonly pollIntervalMs?: number;
+	/**
+	 * The identity of the request that created the task. A store MUST refuse every later access
+	 * from a different principal, answering as for an unknown task.
+	 */
+	readonly principal?: string;
+	/** The store's own: whatever its execution needs to find or start the work. */
+	readonly context?: Readonly<Record<string, unknown>>;
+}
+
+/** The identity presented on a `tasks/*` request. */
+export interface TaskAccess {
+	readonly principal?: string;
+}
+
+/**
+ * Where tasks live and how their work is found. The extension owns the protocol; the store owns the
+ * state, and the application owns the execution behind it: a queue, a workflow, a durable object.
+ *
+ * - `create` MUST NOT resolve before a following `get` would find the task.
+ * - `get`, `update` and `cancel` answer `undefined` or `false` for a task that is unknown, expired
+ *   or another principal's, and the extension answers all three alike.
+ * - `cancel` is cooperative and idempotent on a finished task.
+ * - Task ids MUST be unguessable.
+ */
+export interface TaskStore {
+	create(params: CreateTaskParams): Promise<Task>;
+	get(taskId: string, access?: TaskAccess): Promise<DetailedTask | undefined>;
+	update(
+		taskId: string,
+		inputResponses: Readonly<Record<string, unknown>>,
+		access?: TaskAccess,
+	): Promise<boolean>;
+	cancel(taskId: string, access?: TaskAccess): Promise<boolean>;
+}
+
+export interface TasksExtensionOptions {
+	/** Retention when `create` is given none, in milliseconds; `null` is unlimited. Default 24 hours. */
+	readonly defaultTtlMs?: number | null;
+	/** The polling hint when `create` is given none, in milliseconds. Default 5000. */
+	readonly defaultPollIntervalMs?: number;
+	/**
+	 * The identity a task is bound to. Default: the OAuth client id, with the token subject when
+	 * the token verifier puts one at `authInfo.extra.sub`. With no authentication it is `undefined`,
+	 * and a task's id is then the only credential for it.
+	 */
+	readonly principal?: (context: ServerContext) => string | undefined;
+}
+
+export interface CreateTaskOptions {
+	readonly ttlMs?: number | null;
+	readonly pollIntervalMs?: number;
+	readonly context?: Readonly<Record<string, unknown>>;
+}
+
+const CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Whether THIS request declared the Tasks extension. A task may be returned only to a request that
+ * did, whatever an earlier request declared.
+ */
+export function declaresTasks(context: ServerContext): boolean {
+	const envelope: unknown = context.mcpReq.envelope;
+	const capabilities = isRecord(envelope) ? envelope[CLIENT_CAPABILITIES] : undefined;
+	const extensions = isRecord(capabilities) ? capabilities["extensions"] : undefined;
+	return isRecord(extensions) && TASKS_EXTENSION_ID in extensions;
+}
+
+function requireTasks(context: ServerContext, what: string): void {
+	if (declaresTasks(context)) return;
+	throw new MissingRequiredClientCapabilityError(
+		{ requiredCapabilities: { extensions: { [TASKS_EXTENSION_ID]: {} } } },
+		`${what} requires the request to declare the "${TASKS_EXTENSION_ID}" extension`,
+	);
+}
+
+/** On 2025-11-25, which carries no envelope, `tasks/get` and `tasks/cancel` named other methods. */
+function requireModern(context: ServerContext): void {
+	if (context.mcpReq.envelope === undefined) {
+		throw new ProtocolError(ProtocolErrorCode.MethodNotFound, "Method not found");
+	}
+}
+
+function taskNotFound(): never {
+	throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Task not found");
+}
+
+function defaultPrincipal(context: ServerContext): string | undefined {
+	const authInfo = context.http?.authInfo;
+	if (authInfo === undefined) return undefined;
+	const subject = authInfo.extra?.["sub"];
+	return typeof subject === "string"
+		? JSON.stringify([authInfo.clientId, subject])
+		: authInfo.clientId;
+}
+
+const taskParams = z.object({ taskId: z.string() });
+const updateParams = taskParams.extend({
+	inputResponses: z.record(z.string(), z.unknown()).optional(),
+});
+
+/**
+ * Serves the Tasks extension: its capability, `tasks/get`, `tasks/update` and `tasks/cancel`, over
+ * the {@link TaskStore} the application supplies. A tool answers with a task through
+ * {@link TasksExtension.create}.
+ *
+ * One instance serves any number of servers; {@link TasksExtension.attach} each one before it
+ * connects. Under `createMcpHandler`, which builds a server per request, create the extension
+ * once and attach it in the factory.
+ */
+export class TasksExtension {
+	readonly id = TASKS_EXTENSION_ID;
+	readonly store: TaskStore;
+	readonly #defaultTtlMs: number | null;
+	readonly #defaultPollIntervalMs: number;
+	readonly #principal: (context: ServerContext) => string | undefined;
+	readonly #attached = new WeakSet<McpServer>();
+
+	constructor(store: TaskStore, options: TasksExtensionOptions = {}) {
+		this.store = store;
+		this.#defaultTtlMs = options.defaultTtlMs === undefined ? 86_400_000 : options.defaultTtlMs;
+		this.#defaultPollIntervalMs = options.defaultPollIntervalMs ?? 5000;
+		this.#principal = options.principal ?? defaultPrincipal;
+	}
+
+	/**
+	 * Create a task for the current `tools/call`, bound to the caller, and return the handle the tool
+	 * answers with. Refuses with `-32021` when the request did not declare the extension.
+	 */
+	async create(context: ServerContext, options: CreateTaskOptions = {}): Promise<TaskToolResult> {
+		requireTasks(context, "Answering with a task");
+		const principal = this.#principal(context);
+		const pollIntervalMs = options.pollIntervalMs ?? this.#defaultPollIntervalMs;
+		const task = await this.store.create({
+			ttlMs: options.ttlMs === undefined ? this.#defaultTtlMs : options.ttlMs,
+			pollIntervalMs,
+			...(principal === undefined ? {} : { principal }),
+			...(options.context === undefined ? {} : { context: options.context }),
+		});
+		return { resultType: "task", ...task } as TaskToolResult;
+	}
+
+	/**
+	 * Serve the extension on `server`. Must run before it connects. Attaching this extension to the
+	 * same server again does nothing; attaching a second Tasks extension throws and leaves the server
+	 * as it was, because its `tasks/*` handlers would silently replace the first one's.
+	 */
+	attach(server: McpServer): void {
+		if (this.#attached.has(server)) return;
+		const protocol = server.server;
+		if (protocol.getCapabilities().extensions?.[TASKS_EXTENSION_ID] !== undefined) {
+			throw new Error(
+				`A Tasks extension is already attached to this server; one server serves one task store.`,
+			);
+		}
+		protocol.registerCapabilities({ extensions: { [TASKS_EXTENSION_ID]: {} } });
+
+		const access = (context: ServerContext): TaskAccess => {
+			const principal = this.#principal(context);
+			return principal === undefined ? {} : { principal };
+		};
+
+		protocol.setRequestHandler("tasks/get", { params: taskParams }, async (params, context) => {
+			requireModern(context);
+			requireTasks(context, "tasks/get");
+			const task = await this.store.get(params.taskId, access(context));
+			return task === undefined ? taskNotFound() : { resultType: "complete", ...task };
+		});
+
+		protocol.setRequestHandler(
+			"tasks/update",
+			{ params: updateParams },
+			async (params, context) => {
+				requireModern(context);
+				requireTasks(context, "tasks/update");
+				const dropped = context.mcpReq.droppedInputResponseKeys ?? [];
+				if (dropped.length > 0) {
+					throw new ProtocolError(
+						ProtocolErrorCode.InvalidParams,
+						`inputResponses entries must be bare results; refused: ${dropped.join(", ")}`,
+					);
+				}
+				const inputResponses = context.mcpReq.inputResponses ?? params.inputResponses;
+				if (inputResponses === undefined) {
+					throw new ProtocolError(
+						ProtocolErrorCode.InvalidParams,
+						"tasks/update requires inputResponses",
+					);
+				}
+				const found = await this.store.update(params.taskId, inputResponses, access(context));
+				return found ? { resultType: "complete" } : taskNotFound();
+			},
+		);
+
+		protocol.setRequestHandler("tasks/cancel", { params: taskParams }, async (params, context) => {
+			requireModern(context);
+			requireTasks(context, "tasks/cancel");
+			const found = await this.store.cancel(params.taskId, access(context));
+			return found ? { resultType: "complete" } : taskNotFound();
+		});
+
+		this.#attached.add(server);
+	}
 }
