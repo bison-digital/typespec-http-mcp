@@ -535,7 +535,7 @@ export async function toolResult(
  * **`C` is the caller context, and `registerTools` INFERS it from `context`.** An application whose
  * `context` returns a `Caller` has handlers typed `(ctx: Caller, input)`, with nothing to declare.
  */
-export interface ToolDeps<C = unknown, Call extends ToolCallShape = ToolCallShape> {
+export interface ToolDeps<C = unknown, Call extends ToolCallShape = never> {
 	/**
 	 * Whether the caller this server was built for may SEE this tool.
 	 *
@@ -586,6 +586,11 @@ export interface ToolDeps<C = unknown, Call extends ToolCallShape = ToolCallShap
 	 * no per-tool declaration: the server decides on each request whether to answer with a task.
 	 * Whether a tool's work outlives a request is a fact about where the application runs it, not
 	 * about the operation.
+	 *
+	 * **Typed by the generated `ToolCall`, so write `ToolDeps<Caller, ToolCall>` to set it.** The
+	 * policy names operations, and only the generated module knows which exist. `ToolDeps<Caller>`
+	 * names none, so it admits no operation, and wiring written before tasks existed compiles as it
+	 * did.
 	 */
 	readonly tasks?: ToolTasks<C, Call>;
 }
@@ -598,6 +603,11 @@ export interface ToolCallShape {
 
 /**
  * The application's task policy for the tools one `registerTools` call registers.
+ *
+ * **`decide` and `create` are METHOD signatures, deliberately.** That keeps the policy covariant in
+ * `Call`, so `ToolDeps<Caller>`, which lists no operation, is still a `ToolDeps<Caller, ToolCall>`.
+ * With property signatures the two would be unrelated, and every wiring written before tasks existed
+ * would stop compiling.
  *
  * **A request that did not declare the Tasks extension never reaches this policy.** It is answered
  * inline, as if no policy were configured, because the extension forbids answering it with a task.
@@ -619,7 +629,7 @@ export interface ToolTasks<C, Call extends ToolCallShape> {
 	 * Receives the validated input and the caller, so the answer can depend on the application's own
 	 * state: work that is already finished can be answered at once.
 	 */
-	readonly decide?: (call: Call, caller: C, context: ServerContext) => Awaitable<"task" | "inline">;
+	decide?(call: Call, caller: C, context: ServerContext): Awaitable<"task" | "inline">;
 
 	/**
 	 * Create the task and answer with its handle. In practice
@@ -627,7 +637,7 @@ export interface ToolTasks<C, Call extends ToolCallShape> {
 	 * application chooses what the store needs to find or start the work: the call, an identifier
 	 * for the caller, a service name when one store serves several services.
 	 */
-	readonly create: (call: Call, caller: C, context: ServerContext) => Promise<TaskToolResult>;
+	create(call: Call, caller: C, context: ServerContext): Promise<TaskToolResult>;
 }
 
 /**

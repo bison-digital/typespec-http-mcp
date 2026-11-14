@@ -430,7 +430,7 @@ export function renderTools(
 	 * **Always the runtime this package writes beside the file.** It used to be whatever
 	 * `runtime-module` named, which made an application own a copy of the rules below.
 	 */
-	const runtimeTypes = ["McpServer", "ServerContext", "ToolDeps"];
+	const runtimeTypes = ["CallToolResult", "McpServer", "ServerContext", "ToolDeps"];
 	if (entries.length > 0) runtimeTypes.push("Awaitable");
 	const usesByteStream = entries.some((entry) =>
 		membersOf(entry.route, entry.names).some((member) => {
@@ -441,7 +441,9 @@ export function renderTools(
 	if (usesByteStream) runtimeTypes.push("ByteStream");
 	const from = literal(DEFAULT_RUNTIME_MODULE);
 	const runtimeImport = [
-		...(entries.length > 0 ? [`import { toolResult } from ${from};`] : []),
+		...(entries.length > 0
+			? [`import { declaresTasks, toolError, toolResult } from ${from};`]
+			: []),
 		`import type { ${runtimeTypes.toSorted().join(", ")} } from ${from};`,
 	].join("\n");
 	const schemaImport =
@@ -508,31 +510,41 @@ export function renderTools(
 	 */
 	const ordered = [...entries].toSorted((a, b) => a.toolName.localeCompare(b.toolName));
 
+	/**
+	 * The body kinds the runtime cannot read off an arm, only where one applies: a JSON body is known
+	 * from its media type, and most operations answer nothing else.
+	 */
+	const bodiesOf = (entry: ToolEntry): string => {
+		const kinds = new Map<string, string[]>();
+		for (const [status, mediaType, kind] of bodyKindsOf(entry.route, entry.names)) {
+			kinds.set(status, [...(kinds.get(status) ?? []), `${literal(mediaType)}: ${literal(kind)}`]);
+		}
+		return kinds.size === 0
+			? ""
+			: `, bodies: { ${[...kinds].map(([status, byType]) => `${literal(status)}: { ${byType.join(", ")} }`).join(", ")} }`;
+	};
+
 	const registrations = ordered
 		.map((entry) => {
+			const operationId = entry.route.operationId;
 			const title = entry.title === undefined ? "" : `\n\t\t\t\ttitle: ${literal(entry.title)},`;
 			const description =
 				entry.description === undefined
 					? ""
 					: `\n\t\t\t\tdescription: ${literal(entry.description)},`;
-			const published = outputSchemaOf(entry);
-			const outputSchema = published === undefined ? "" : `\n\t\t\t\toutputSchema: ${published},`;
 			/**
-			 * The body kinds the runtime cannot read off an arm, only where one applies: a JSON body is
-			 * known from its media type, and most operations answer nothing else.
+			 * **A tool the application lets answer with a task publishes no `outputSchema`.** The SDK
+			 * turns a task from a tool that publishes one into a tool error, so a task tool is an ordinary
+			 * tool without it, and its result carries the text alone on every request, inline or not.
 			 */
-			const kinds = new Map<string, string[]>();
-			for (const [status, mediaType, kind] of bodyKindsOf(entry.route, entry.names)) {
-				kinds.set(status, [
-					...(kinds.get(status) ?? []),
-					`${literal(mediaType)}: ${literal(kind)}`,
-				]);
-			}
-			const bodies =
-				kinds.size === 0
+			const published = outputSchemaOf(entry);
+			const outputSchema =
+				published === undefined
 					? ""
-					: `, bodies: { ${[...kinds].map(([status, byType]) => `${literal(status)}: { ${byType.join(", ")} }`).join(", ")} }`;
-			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${published ?? "undefined"}${bodies} }`;
+					: `\n\t\t\t\t...(deferrable ? {} : { outputSchema: ${published} }),`;
+			const declaredSchema =
+				published === undefined ? "undefined" : `deferrable ? undefined : ${published}`;
+			const declared = `{ arms: ${entry.names.responses}, outputSchema: ${declaredSchema}${bodiesOf(entry)} }`;
 			/**
 			 * **A parameterless tool must not DECLARE an argument it never reads.**
 			 *
@@ -552,6 +564,7 @@ export function renderTools(
 			const argument = fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
 			const argumentName = parameterless ? "_args" : "args";
 			return `	{
+		const deferrable = taskable.has(${literal(operationId)});
 		const tool = server.registerTool(
 			${literal(entry.toolName)},
 			{${title}${description}
@@ -561,10 +574,17 @@ export function renderTools(
 			async (${argumentName}, context) => {
 				const ctx = deps.context(context, ${literal(entry.route.authentication)});
 				if (ctx === null) return deps.noContext(context);
+				const input: ${inputTypeOf(entry)} = ${argument};
+				if (deferrable && deps.tasks !== undefined && declaresTasks(context)) {
+					const call = { operationId: ${literal(operationId)}, input } as const;
+					if ((await deps.tasks.decide?.(call, ctx, context)) !== "inline") {
+						return deps.tasks.create(call, ctx, context);
+					}
+				}
 				return toolResult(
 					${declared},
-					${literal(entry.route.operationId)},
-					await handlersFor(context).${entry.route.operationId}(ctx, ${argument}),
+					${literal(operationId)},
+					await handlersFor(context).${operationId}(ctx, input),
 				);
 			},
 		);
@@ -576,6 +596,45 @@ export function renderTools(
 	}`;
 		})
 		.join("\n");
+
+	const toolCalls =
+		ordered.length === 0
+			? " never"
+			: ordered
+					.map(
+						(entry) =>
+							`\n\t| { readonly operationId: ${literal(entry.route.operationId)}; readonly input: ${inputTypeOf(entry)} }`,
+					)
+					.join("");
+
+	/**
+	 * **The same arms and the same rules as the registered tool, with `outputSchema` withheld** as it
+	 * is for every tool that may answer with a task, so the result is the one the blocking call gives.
+	 */
+	const runCases = ordered
+		.map(
+			(entry) => `			case ${literal(entry.route.operationId)}:
+				return await toolResult(
+					{ arms: ${entry.names.responses}, outputSchema: undefined${bodiesOf(entry)} },
+					${literal(entry.route.operationId)},
+					await handlers.${entry.route.operationId}(caller, call.input),
+				);`,
+		)
+		.join("\n");
+	const runTool =
+		ordered.length === 0
+			? `export async function runTool<C>(_handlers: Tools<C>, call: ToolCall, _caller: C): Promise<CallToolResult> {
+	return call;
+}`
+			: `export async function runTool<C>(handlers: Tools<C>, call: ToolCall, caller: C): Promise<CallToolResult> {
+	try {
+		switch (call.operationId) {
+${runCases}
+		}
+	} catch (error) {
+		return toolError(error);
+	}
+}`;
 
 	const text = `${generatedBanner(options.hint)}
 ${usesZod ? 'import { z } from "zod";\n' : ""}${runtimeImport}
@@ -652,12 +711,28 @@ export const TOOL_NAMES = [${ordered.map((entry) => literal(entry.toolName)).joi
 export function registerTools<C, T extends Tools<C>>(
 	${u}server: McpServer,
 	${u}handlersFor: (context: ServerContext) => ToolsExhaustive<T>,
-	${u}deps: ToolDeps<C>,
+	${u}deps: ToolDeps<C, ToolCall>,
 ): readonly string[] {
-	const registered: string[] = [];
+	const registered: string[] = [];${entries.length === 0 ? "" : "\n\tconst taskable = new Set<string>(deps.tasks?.operations ?? []);"}
 ${registrations}
 	return registered;
 }
+
+/**
+ * One tool call, as the work behind an MCP task receives it: the operation and the input its handler
+ * is given. \`deps.tasks.create\` is handed one, and passes on whatever its store needs to run it later.
+ */
+export type ToolCall =${toolCalls};
+
+/**
+ * Run one tool call through its handler and its declared responses, and answer what the tool would
+ * have answered: the work behind a task settles with this.
+ *
+ * **Never throws.** A thrown error, and a result the document does not declare, answer the tool error
+ * McpServer answers for them, so the task completes with \`isError\` exactly as the blocking call would
+ * have. The Tasks extension reserves a \`failed\` task for a protocol error.
+ */
+${runTool}
 `;
 
 	return { text, emitted: entries.map((entry) => entry.route.operationId) };

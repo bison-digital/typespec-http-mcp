@@ -158,8 +158,12 @@ describe("the body kinds reach the runtime, and only where one applies", () => {
 	it("writes no entry for a JSON body or for a model served as unvalidated text", () => {
 		expect(declaredFor("listItems")).not.toContain("bodies");
 		expect(declaredFor("itemXml")).not.toContain("bodies");
-		// thumbnail, note, and the three downloads of bytes or of a model as bytes.
-		expect([...emitted.matchAll(/bodies: \{/g)]).toHaveLength(5);
+		// thumbnail, note, and the three downloads of bytes or of a model as bytes -- each declared
+		// once where its tool is registered and once in `runTool`, which settles a task with the same
+		// arms.
+		const [registration = "", settling = ""] = emitted.split("export type ToolCall");
+		expect([...registration.matchAll(/bodies: \{/g)]).toHaveLength(5);
+		expect([...settling.matchAll(/bodies: \{/g)]).toHaveLength(5);
 	});
 });
 
