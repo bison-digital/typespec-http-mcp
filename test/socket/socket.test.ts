@@ -245,6 +245,62 @@ describe("the documented Worker, on workerd, over a socket", () => {
 	 * answers `-32601 Method not found`. A real client THROWS on that, which is a stronger statement
 	 * of the defect than reading a status code: this arm fails by rejection, not by assertion.
 	 */
+	/**
+	 * **The Tasks extension on workerd, through the runtime the emitter writes.** No client release
+	 * speaks the extension yet, so these are the 2026-07-28 requests such a client sends, over the
+	 * socket: a `tools/call` declaring the extension answers with a task, and `tasks/get` serves the
+	 * result the generated `runTool` settled it with.
+	 */
+	it("answers a client that declared the Tasks extension with a task, and completes it", async () => {
+		const rpc = async (method: string, params: Record<string, unknown>, routed: string) => {
+			const response = await fetch(new URL("/mcp", origin), {
+				method: "POST",
+				headers: {
+					authorization: "Bearer writer-token",
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+					"mcp-protocol-version": "2026-07-28",
+					"mcp-method": method,
+					"mcp-name": routed,
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method,
+					params: {
+						...params,
+						_meta: {
+							"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+							"io.modelcontextprotocol/clientInfo": { name: "socket-tasks", version: "0" },
+							"io.modelcontextprotocol/clientCapabilities": {
+								extensions: { "io.modelcontextprotocol/tasks": {} },
+							},
+						},
+					},
+				}),
+			});
+			const text = await response.text();
+			const json = text.startsWith("event:") ? (/data: (.*)/.exec(text)?.[1] ?? "{}") : text;
+			return (JSON.parse(json) as { result?: Record<string, unknown> }).result;
+		};
+
+		const created = await rpc(
+			"tools/call",
+			{ name: "WidgetTools_create", arguments: { name: "b" } },
+			"WidgetTools_create",
+		);
+		expect(created).toMatchObject({ resultType: "task", status: "working" });
+		const taskId = String(created?.["taskId"]);
+
+		const polled = await rpc("tasks/get", { taskId }, taskId);
+		expect(polled).toMatchObject({
+			resultType: "complete",
+			taskId,
+			status: "completed",
+			result: { content: [{ type: "text", text: '{"id":"1","name":"a","colour":"grey"}' }] },
+		});
+	});
+
 	it("answers a grant that selects nothing with an empty list, never a protocol error", async () => {
 		// A token whose grant permits nothing AND a spec with no public tool would register none.
 		// Driven through a real client, `-32601` is a rejection rather than a status code to read.

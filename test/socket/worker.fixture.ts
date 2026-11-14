@@ -13,8 +13,15 @@
  * build. `socket.test.ts` compiles it against freshly emitted output instead.
  */
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { registerTools, type Tools } from "./.out/socket/mcp.gen.js";
-import type { ToolDeps } from "./.out/socket/mcp-runtime.gen.js";
+import { registerTools, runTool, type ToolCall, type Tools } from "./.out/socket/mcp.gen.js";
+import {
+	type CreateTaskParams,
+	type DetailedTask,
+	type TaskAccess,
+	TasksExtension,
+	type TaskStore,
+	type ToolDeps,
+} from "./.out/socket/mcp-runtime.gen.js";
 
 /**
  * The same handler object an HTTP server would be given. **`satisfies`, not an annotation**, so each
@@ -47,6 +54,57 @@ const handlers = {
 } satisfies Tools<Caller>;
 
 /**
+ * **Tasks whose work is done by the time anyone asks**, kept in the isolate: enough to run the Tasks
+ * wire on workerd. A real store keeps tasks durably, in a Durable Object or behind a Workflow, and
+ * runs the work there; this one runs it when the task is first read, with the generated `runTool`.
+ */
+class SettledOnReadStore implements TaskStore {
+	readonly #tasks = new Map<
+		string,
+		{ task: DetailedTask; principal: string | undefined; work: { call: ToolCall; caller: Caller } }
+	>();
+
+	async create(params: CreateTaskParams) {
+		const now = new Date().toISOString();
+		const task = {
+			taskId: crypto.randomUUID(),
+			status: "working" as const,
+			createdAt: now,
+			lastUpdatedAt: now,
+			ttlMs: params.ttlMs,
+		};
+		const work = params.context as unknown as { call: ToolCall; caller: Caller };
+		this.#tasks.set(task.taskId, { task, principal: params.principal, work });
+		return task;
+	}
+
+	async get(taskId: string, access?: TaskAccess) {
+		const entry = this.#tasks.get(taskId);
+		if (entry === undefined || entry.principal !== access?.principal) return undefined;
+		if (entry.task.status === "working") {
+			const result = await runTool(handlers, entry.work.call, entry.work.caller);
+			entry.task = { ...entry.task, status: "completed", result: { ...result } };
+		}
+		return entry.task;
+	}
+
+	async update(
+		taskId: string,
+		_inputResponses: Readonly<Record<string, unknown>>,
+		access?: TaskAccess,
+	) {
+		return (await this.get(taskId, access)) !== undefined;
+	}
+
+	async cancel(taskId: string, access?: TaskAccess) {
+		return (await this.get(taskId, access)) !== undefined;
+	}
+}
+
+/** ONE extension for the deployment: the factory below builds a server per request. */
+const tasks = new TasksExtension(new SettledOnReadStore());
+
+/**
  * Three callers, one deployment.
  *
  * **This is the shape the in-process arm cannot have.** `acceptance.test.ts` builds a NEW handler
@@ -71,7 +129,7 @@ const handler = createMcpHandler(
 		const scopes = context.authInfo?.scopes ?? [];
 		const schemes = (context.authInfo?.extra?.["schemes"] as readonly string[] | undefined) ?? [];
 
-		const deps: ToolDeps<Caller> = {
+		const deps: ToolDeps<Caller, ToolCall> = {
 			permits: (requirements) =>
 				requirements.length === 0 ||
 				requirements.some((requirement) =>
@@ -85,9 +143,15 @@ const handler = createMcpHandler(
 				authentication,
 			}),
 			noContext: () => ({ content: [{ type: "text", text: "Not authenticated." }], isError: true }),
+			// Creating a widget may answer a client that declared the Tasks extension with a task.
+			tasks: {
+				operations: ["WidgetTools_create"],
+				create: (call, caller, context) => tasks.create(context, { context: { call, caller } }),
+			},
 		};
 
 		const server = new McpServer({ name: "widgets", version: "1.0.0" });
+		tasks.attach(server);
 		registerTools(server, () => handlers, deps);
 		return server;
 	},

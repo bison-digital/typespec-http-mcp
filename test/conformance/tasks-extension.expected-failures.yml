@@ -1,0 +1,11 @@
+# Scenarios of @modelcontextprotocol/conformance that this emitter does not pass, each with why.
+# The suite fails a scenario listed here that starts passing, so this list cannot go stale quietly.
+server:
+  # A tool that asks for input on tools/call itself, then escalates to a task on the final round.
+  # Generated tools answer what the document declares and never ask for input on the call.
+  - tasks-mrtr-composition
+  # Refusing a client that did not declare the extension with -32021, for a tool that cannot run
+  # without a task. Thrown from a tool callback, @modelcontextprotocol/server 2.4.0 answers -32021
+  # as a tool error rather than as the JSON-RPC error the extension requires, so such a client is
+  # answered inline until the SDK passes it through.
+  - tasks-required-task-error
