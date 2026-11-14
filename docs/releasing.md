@@ -183,7 +183,10 @@ seconds:
 | `tsc` over the consumer, `strict` + `exactOptionalPropertyTypes` + `noUnusedLocals`             | exit 0                                                                                          |
 | control: `operations: ["deleteCatalog"]`                                                        | `TS2322`, `"deleteCatalog"` is not `"exportCatalog" \| "getBook"`; restored, `cmp` clean, green |
 | `@modelcontextprotocol/ext-tasks@0.2.3`'s client, pinned to 2026-07-28, declaring the extension | a task in 38 ms, polled each second as `pollIntervalMs` asks, completed at 3 s, result decoded  |
-| a released client application on 2026-07-28                                                     | declares the extension on discovery but not on `tools/call`, so answered inline, as required    |
+| a released client application, interactive                                                      | declares the extension on `tools/call`: a task at once, polled each second, completed at 3 s    |
+| the same application, headless                                                                  | declares the extension on discovery but not on `tools/call`, so answered inline, as required    |
+| the SDK's own Tasks extension, from the preview build of its pull request                       | the same store and `deps.tasks`, one import and `extensions: [tasks]` changed: completed at 3 s |
+| a Durable Object store, deployed to Cloudflare Workers and then deleted                         | a task over HTTPS, completed by the object's alarm 1.5 s after it was created                   |
 
 **The first run failed, and that is what the rehearsal is for.** The reference client decodes a
 completed task's `result` as a 2026-07-28 tool result, which carries `resultType: "complete"`, and
