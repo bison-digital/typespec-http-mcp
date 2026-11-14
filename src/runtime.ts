@@ -678,11 +678,16 @@ export function completed(result: CallToolResult): CallToolResult {
  */
 export const TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks";
 
-/** A task's state, as every task-related message carries it. */
-export interface Task {
+/**
+ * A task's state, as every task-related message carries it.
+ *
+ * **A type, not an interface, and its optional members admit `undefined`**, so a task typed by the
+ * SDK's own extension, an open object whose optional members do, is one of these and the reverse.
+ */
+export type Task = {
 	readonly taskId: string;
 	readonly status: "working" | "input_required" | "completed" | "cancelled" | "failed";
-	readonly statusMessage?: string;
+	readonly statusMessage?: string | undefined;
 	/** ISO 8601. */
 	readonly createdAt: string;
 	/** ISO 8601. */
@@ -690,8 +695,14 @@ export interface Task {
 	/** Retention from creation, in milliseconds; `null` is unlimited. */
 	readonly ttlMs: number | null;
 	/** How often a client should poll, in milliseconds. */
-	readonly pollIntervalMs?: number;
-}
+	readonly pollIntervalMs?: number | undefined;
+};
+
+/** A request a task makes of the client while it waits, such as `elicitation/create`. */
+export type TaskInputRequest = {
+	readonly method: string;
+	readonly params?: Readonly<Record<string, unknown>> | undefined;
+};
 
 /**
  * What `tasks/get` answers: the task, with what its status carries.
@@ -703,7 +714,7 @@ export type DetailedTask =
 	| (Task & { readonly status: "working" })
 	| (Task & {
 			readonly status: "input_required";
-			readonly inputRequests: Readonly<Record<string, unknown>>;
+			readonly inputRequests: Readonly<Record<string, TaskInputRequest>>;
 	  })
 	| (Task & { readonly status: "completed"; readonly result: Readonly<Record<string, unknown>> })
 	| (Task & { readonly status: "failed"; readonly error: Readonly<Record<string, unknown>> })
