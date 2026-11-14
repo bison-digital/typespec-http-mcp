@@ -264,9 +264,7 @@ const result = await runTool(handlers, call, caller); // a CallToolResult; it ne
 It answers what a listed tool answers, through the same declared responses. A declared failure, a
 result the document does not declare and a thrown error all answer the tool error the blocking call
 answers, so the task completes with `isError`, as the extension requires. Mark a task `failed` only
-when the work fails below the tool, with a JSON-RPC error. `runTool` itself throws for one such
-fault: a call naming an operation this service has no tool for, which a store shared by several
-services, or a task that outlived a deploy removing its operation, can hand it.
+when the work fails below the tool, with a JSON-RPC error. `runTool` itself throws for two such faults, without calling the handler: a call naming an operation this service has no tool for, which a store shared by several services can hand it, and a call whose stored input the tool's argument schema no longer accepts, which a task that outlived a deploy can.
 
 `registerTools` throws when `deps.tasks` lists an operation and no `TasksExtension` is attached to the
 server: its tasks could not be polled. Attach first.

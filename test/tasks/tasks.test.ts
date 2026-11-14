@@ -373,6 +373,18 @@ describe("what the generated code refuses rather than gets wrong", () => {
 		).rejects.toThrow(/deleteCatalog/);
 	});
 
+	it("refuses stored input its tool's schema no longer accepts, without running the handler", async () => {
+		exportCalls.mockClear();
+		await expect(
+			generated.runTool(
+				handlers,
+				{ operationId: "exportCatalog", input: { format: "xml" } },
+				CALLER,
+			),
+		).rejects.toThrow(/exportCatalog/);
+		expect(exportCalls).not.toHaveBeenCalled();
+	});
+
 	it("refuses a task policy on a server the Tasks extension is not attached to", () => {
 		const server = new McpServer({ name: "bookshop", version: "1.0.0" });
 		const extension = new runtime.TasksExtension(new MemoryStore());

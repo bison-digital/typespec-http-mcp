@@ -630,11 +630,17 @@ export function renderTools(
 			? `export async function runTool<C>(_handlers: Tools<C>, call: ToolCall, _caller: C): Promise<CallToolResult> {
 	${unknownCall}
 }`
-			: `const TOOL_OPERATIONS: ReadonlySet<string> = new Set([${ordered.map((entry) => literal(entry.route.operationId)).join(", ")}]);
+			: `/** Each tool's argument schema, by operation: what \`runTool\` checks a stored call against. */
+const TOOL_INPUTS: ReadonlyMap<string, z.ZodType> = new Map<string, z.ZodType>([${ordered.map((entry) => `[${literal(entry.route.operationId)}, ${inputSchemaName(entry)}]`).join(", ")}]);
 
 export async function runTool<C>(handlers: Tools<C>, call: ToolCall, caller: C): Promise<CallToolResult> {
-	if (!TOOL_OPERATIONS.has(call.operationId)) {
+	const inputSchema = TOOL_INPUTS.get(call.operationId);
+	if (inputSchema === undefined) {
 		${unknownCall}
+	}
+	const checked = inputSchema.safeParse(call.input);
+	if (!checked.success) {
+		throw new Error(\`The stored input of \${call.operationId} no longer meets its tool's argument schema: \${checked.error.message}\`);
 	}
 	try {
 		switch (call.operationId) {
@@ -738,9 +744,10 @@ export type ToolCall =${toolCalls};
  * when \`deps.tasks\` lists it, which publishes no \`outputSchema\` and so carries no
  * \`structuredContent\`: the work behind a task settles with this.
  *
- * **Throws only for a call naming an operation this service has no tool for**, as a store shared by
- * several services, or a task that outlived a deploy removing its operation, can hand it. That is a
- * fault below the tool: settle the task \`failed\`, not \`completed\`.
+ * **Throws only for a call this service can no longer run**: one naming an operation it has no tool
+ * for, as a store shared by several services can hand it, or one whose stored input its tool's
+ * argument schema no longer accepts, as a task that outlived a deploy can. Both are faults below the
+ * tool: settle the task \`failed\`, not \`completed\`. The handler is not called.
  *
  * **Otherwise it never throws.** A thrown error, and a result the document does not declare, answer the tool error
  * McpServer answers for them, so the task completes with \`isError\` exactly as the blocking call would

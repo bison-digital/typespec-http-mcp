@@ -13,7 +13,7 @@ Upgrading: [what to check before you take this](docs/guides.md#to-090).
   declare the extension is always answered inline. A listed tool publishes no `outputSchema`.
 - **`ToolCall` and `runTool`** in `mcp.gen.ts`. `runTool` runs a call through the same handler and
   the same declared responses as a listed tool, so the work behind a task settles with exactly what
-  the blocking call answers. It throws only for an operation the service has no tool for.
+  the blocking call answers. It throws only for a call the service can no longer run: an operation it has no tool for, or stored input the tool's argument schema no longer accepts.
 - `registerTools` refuses a task policy on a server no Tasks extension is attached to, whose tasks
   nobody could poll.
 - **`TasksExtension`** in the runtime, over an application's `TaskStore`. `attach(server)` serves

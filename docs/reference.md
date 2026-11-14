@@ -196,9 +196,7 @@ A tool may answer with an [MCP task](https://github.com/modelcontextprotocol/ext
   `registerTools` runs, as `permits` is.
 
 `runTool(handlers, call, caller)` runs a call through its handler and the tool's declared responses
-with `outputSchema` withheld, and answers what the blocking call of a listed tool answers. It throws
-only for a call naming an operation the service has no tool for, a fault below the tool that a store
-settles as `failed`. Otherwise a thrown error, an undeclared status and a body that breaks its schema
+with `outputSchema` withheld, and answers what the blocking call of a listed tool answers. It throws only for a call the service can no longer run, one naming an operation it has no tool for or whose stored input the tool's argument schema no longer accepts: a fault below the tool that a store settles as `failed`, and the handler is not called. Otherwise a thrown error, an undeclared status and a body that breaks its schema
 answer
 `{ content: [{ type: "text", text: message }], isError: true }`, the result McpServer gives the
 blocking call. Every answer carries `resultType: "complete"`, as the blocking answer does on the
