@@ -17,6 +17,7 @@ import { registerTools, runTool, type ToolCall, type Tools } from "./.out/socket
 import {
 	type CreateTaskParams,
 	type DetailedTask,
+	type Task,
 	type TaskAccess,
 	TasksExtension,
 	type TaskStore,
@@ -54,55 +55,146 @@ const handlers = {
 } satisfies Tools<Caller>;
 
 /**
- * **Tasks whose work is done by the time anyone asks**, kept in the isolate: enough to run the Tasks
- * wire on workerd. A real store keeps tasks durably, in a Durable Object or behind a Workflow, and
- * runs the work there; this one runs it when the task is first read, with the generated `runTool`.
+ * The Durable Object surface the store below uses, declared here so the Worker builds without a
+ * types package: the storage it keeps tasks in, the alarm that runs their work, and the namespace
+ * the Worker reaches it through.
  */
-class SettledOnReadStore implements TaskStore {
-	readonly #tasks = new Map<
-		string,
-		{ task: DetailedTask; principal: string | undefined; work: { call: ToolCall; caller: Caller } }
-	>();
+interface TaskStorage {
+	get<T>(key: string): Promise<T | undefined>;
+	put(key: string, value: unknown): Promise<void>;
+	list<T>(options: { prefix: string }): Promise<Map<string, T>>;
+	setAlarm(scheduledTime: number): Promise<void>;
+}
+interface TaskObjectNamespace {
+	idFromName(name: string): unknown;
+	get(id: unknown): { fetch(request: Request): Promise<Response> };
+}
+interface Env {
+	readonly TASKS: TaskObjectNamespace;
+}
 
-	async create(params: CreateTaskParams) {
-		const now = new Date().toISOString();
-		const task = {
-			taskId: crypto.randomUUID(),
-			status: "working" as const,
-			createdAt: now,
-			lastUpdatedAt: now,
-			ttlMs: params.ttlMs,
+interface StoredTask {
+	readonly task: DetailedTask;
+	readonly principal: string | null;
+	readonly work: { readonly call: ToolCall; readonly caller: Caller };
+}
+
+/** How long a task's work waits for the alarm: long enough to restart the Worker first. */
+const WORK_DELAY_MS = 1500;
+
+/**
+ * **The store a deployment writes: tasks kept in a Durable Object, and their work run by its alarm.**
+ *
+ * A task outlives the request, the server and the Worker that created it, and its work runs whether
+ * or not anyone is polling. The work is the generated `runTool`, so a task completes with exactly
+ * what the tool answers; the store owns where the task lives and when its work runs.
+ */
+export class TaskStoreObject {
+	readonly #storage: TaskStorage;
+
+	constructor(state: { readonly storage: TaskStorage }) {
+		this.#storage = state.storage;
+	}
+
+	async fetch(request: Request): Promise<Response> {
+		const asked = (await request.json()) as {
+			readonly op: "create" | "get" | "update" | "cancel";
+			readonly taskId?: string;
+			readonly principal: string | null;
+			readonly params?: CreateTaskParams;
 		};
-		const work = params.context as unknown as { call: ToolCall; caller: Caller };
-		this.#tasks.set(task.taskId, { task, principal: params.principal, work });
-		return task;
-	}
-
-	async get(taskId: string, access?: TaskAccess) {
-		const entry = this.#tasks.get(taskId);
-		if (entry === undefined || entry.principal !== access?.principal) return undefined;
-		if (entry.task.status === "working") {
-			const result = await runTool(handlers, entry.work.call, entry.work.caller);
-			entry.task = { ...entry.task, status: "completed", result: { ...result } };
+		if (asked.op === "create" && asked.params !== undefined) {
+			const now = new Date().toISOString();
+			const task = {
+				taskId: crypto.randomUUID(),
+				status: "working" as const,
+				createdAt: now,
+				lastUpdatedAt: now,
+				ttlMs: asked.params.ttlMs,
+				pollIntervalMs: 250,
+			};
+			const work = asked.params.context as unknown as StoredTask["work"];
+			await this.#storage.put(`task:${task.taskId}`, { task, principal: asked.principal, work });
+			await this.#storage.setAlarm(Date.now() + WORK_DELAY_MS);
+			return Response.json(task);
 		}
-		return entry.task;
+		const key = `task:${asked.taskId ?? ""}`;
+		const stored = await this.#storage.get<StoredTask>(key);
+		// Another principal's task is answered exactly as an unknown one.
+		const found = stored !== undefined && stored.principal === asked.principal ? stored : undefined;
+		if (asked.op === "get") return Response.json(found?.task ?? null);
+		if (found !== undefined && asked.op === "cancel" && found.task.status === "working") {
+			const now = new Date().toISOString();
+			await this.#storage.put(key, {
+				...found,
+				task: { ...found.task, status: "cancelled", lastUpdatedAt: now },
+			});
+		}
+		return Response.json(found !== undefined);
 	}
 
-	async update(
-		taskId: string,
-		_inputResponses: Readonly<Record<string, unknown>>,
-		access?: TaskAccess,
-	) {
-		return (await this.get(taskId, access)) !== undefined;
-	}
-
-	async cancel(taskId: string, access?: TaskAccess) {
-		return (await this.get(taskId, access)) !== undefined;
+	/** Runs every task still working, and records what it answered. */
+	async alarm(): Promise<void> {
+		for (const [key, stored] of await this.#storage.list<StoredTask>({ prefix: "task:" })) {
+			if (stored.task.status !== "working") continue;
+			const result = await runTool(handlers, stored.work.call, stored.work.caller);
+			const now = new Date().toISOString();
+			await this.#storage.put(key, {
+				...stored,
+				task: { ...stored.task, status: "completed", lastUpdatedAt: now, result: { ...result } },
+			});
+		}
 	}
 }
 
-/** ONE extension for the deployment: the factory below builds a server per request. */
-const tasks = new TasksExtension(new SettledOnReadStore());
+/** The runtime's `TaskStore`, answered by the Durable Object above. */
+class DurableTaskStore implements TaskStore {
+	readonly #namespace: TaskObjectNamespace;
+
+	constructor(namespace: TaskObjectNamespace) {
+		this.#namespace = namespace;
+	}
+
+	async #ask<T>(asked: Record<string, unknown>, access?: TaskAccess): Promise<T> {
+		const object = this.#namespace.get(this.#namespace.idFromName("tasks"));
+		const response = await object.fetch(
+			new Request("https://tasks.invalid/", {
+				method: "POST",
+				body: JSON.stringify({ ...asked, principal: access?.principal ?? null }),
+			}),
+		);
+		return (await response.json()) as T;
+	}
+
+	create(params: CreateTaskParams) {
+		return this.#ask<Task>(
+			{ op: "create", params },
+			params.principal === undefined ? {} : { principal: params.principal },
+		);
+	}
+
+	async get(taskId: string, access?: TaskAccess) {
+		return (await this.#ask<DetailedTask | null>({ op: "get", taskId }, access)) ?? undefined;
+	}
+
+	update(taskId: string, _inputResponses: Readonly<Record<string, unknown>>, access?: TaskAccess) {
+		return this.#ask<boolean>({ op: "update", taskId }, access);
+	}
+
+	cancel(taskId: string, access?: TaskAccess) {
+		return this.#ask<boolean>({ op: "cancel", taskId }, access);
+	}
+}
+
+/**
+ * ONE extension for the deployment, made on the first request, because the store needs the
+ * environment and only a request carries it. The factory below builds a server per request.
+ */
+let tasks: TasksExtension | undefined;
+function extension(): TasksExtension {
+	if (tasks === undefined) throw new Error("The Tasks extension is made by the first request.");
+	return tasks;
+}
 
 /**
  * Three callers, one deployment.
@@ -146,12 +238,13 @@ const handler = createMcpHandler(
 			// Creating a widget may answer a client that declared the Tasks extension with a task.
 			tasks: {
 				operations: ["WidgetTools_create"],
-				create: (call, caller, context) => tasks.create(context, { context: { call, caller } }),
+				create: (call, caller, context) =>
+					extension().create(context, { context: { call, caller } }),
 			},
 		};
 
 		const server = new McpServer({ name: "widgets", version: "1.0.0" });
-		tasks.attach(server);
+		extension().attach(server);
 		registerTools(server, () => handlers, deps);
 		return server;
 	},
@@ -163,7 +256,8 @@ const handler = createMcpHandler(
  * `TypeError: handler is not a function`.
  */
 export default {
-	fetch(request: Request): Promise<Response> {
+	fetch(request: Request, env: Env): Promise<Response> {
+		tasks ??= new TasksExtension(new DurableTaskStore(env.TASKS));
 		const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
 		const grant = GRANTS[token] ?? NO_GRANT;
 		return handler.fetch(request, {

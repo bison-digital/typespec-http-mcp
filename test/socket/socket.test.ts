@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -57,6 +58,54 @@ beforeAll(async () => {
 afterAll(async () => {
 	await worker?.dispose();
 });
+
+/** One 2026-07-28 request from a client that declares the Tasks extension, with a write grant. */
+async function tasksRpc(
+	at: string,
+	method: string,
+	params: Record<string, unknown>,
+): Promise<Record<string, unknown> | undefined> {
+	const routed = typeof params["taskId"] === "string" ? params["taskId"] : params["name"];
+	const response = await fetch(new URL("/mcp", at), {
+		method: "POST",
+		headers: {
+			authorization: "Bearer writer-token",
+			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+			"mcp-protocol-version": "2026-07-28",
+			"mcp-method": method,
+			...(typeof routed === "string" ? { "mcp-name": routed } : {}),
+		},
+		body: JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			method,
+			params: {
+				...params,
+				_meta: {
+					"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+					"io.modelcontextprotocol/clientInfo": { name: "socket-tasks", version: "0" },
+					"io.modelcontextprotocol/clientCapabilities": {
+						extensions: { "io.modelcontextprotocol/tasks": {} },
+					},
+				},
+			},
+		}),
+	});
+	const text = await response.text();
+	const json = text.startsWith("event:") ? (/data: (.*)/.exec(text)?.[1] ?? "{}") : text;
+	return (JSON.parse(json) as { result?: Record<string, unknown> }).result;
+}
+
+/** Polls a task until it leaves `working`, as a client does. */
+async function settled(at: string, taskId: string): Promise<Record<string, unknown> | undefined> {
+	const deadline = Date.now() + 20_000;
+	for (;;) {
+		const polled = await tasksRpc(at, "tasks/get", { taskId });
+		if (polled?.["status"] !== "working" || Date.now() > deadline) return polled;
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+}
 
 /** A client of its own per caller, because a session belongs to one. */
 async function connect(token: string): Promise<Client> {
@@ -246,54 +295,18 @@ describe("the documented Worker, on workerd, over a socket", () => {
 	 * of the defect than reading a status code: this arm fails by rejection, not by assertion.
 	 */
 	/**
-	 * **The Tasks extension on workerd, through the runtime the emitter writes.** No client release
-	 * speaks the extension yet, so these are the 2026-07-28 requests such a client sends, over the
-	 * socket: a `tools/call` declaring the extension answers with a task, and `tasks/get` serves the
-	 * result the generated `runTool` settled it with.
+	 * **The Tasks extension on workerd, through the runtime the emitter writes**, over the store a
+	 * deployment would write: a Durable Object, whose alarm runs the work. No client release speaks
+	 * the extension per call yet, so these are the 2026-07-28 requests such a client sends.
 	 */
 	it("answers a client that declared the Tasks extension with a task, and completes it", async () => {
-		const rpc = async (method: string, params: Record<string, unknown>, routed: string) => {
-			const response = await fetch(new URL("/mcp", origin), {
-				method: "POST",
-				headers: {
-					authorization: "Bearer writer-token",
-					"content-type": "application/json",
-					accept: "application/json, text/event-stream",
-					"mcp-protocol-version": "2026-07-28",
-					"mcp-method": method,
-					"mcp-name": routed,
-				},
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method,
-					params: {
-						...params,
-						_meta: {
-							"io.modelcontextprotocol/protocolVersion": "2026-07-28",
-							"io.modelcontextprotocol/clientInfo": { name: "socket-tasks", version: "0" },
-							"io.modelcontextprotocol/clientCapabilities": {
-								extensions: { "io.modelcontextprotocol/tasks": {} },
-							},
-						},
-					},
-				}),
-			});
-			const text = await response.text();
-			const json = text.startsWith("event:") ? (/data: (.*)/.exec(text)?.[1] ?? "{}") : text;
-			return (JSON.parse(json) as { result?: Record<string, unknown> }).result;
-		};
-
-		const created = await rpc(
-			"tools/call",
-			{ name: "WidgetTools_create", arguments: { name: "b" } },
-			"WidgetTools_create",
-		);
+		const created = await tasksRpc(origin, "tools/call", {
+			name: "WidgetTools_create",
+			arguments: { name: "b" },
+		});
 		expect(created).toMatchObject({ resultType: "task", status: "working" });
 		const taskId = String(created?.["taskId"]);
-
-		const polled = await rpc("tasks/get", { taskId }, taskId);
-		expect(polled).toMatchObject({
+		expect(await settled(origin, taskId)).toMatchObject({
 			resultType: "complete",
 			taskId,
 			status: "completed",
@@ -331,4 +344,40 @@ describe("the Worker this suite deploys is the one the documentation describes",
 		})();
 		expect(output.trim(), output).toBe("");
 	}, 300_000);
+});
+
+describe("a task outlives the Worker that created it", () => {
+	/**
+	 * **Durability, shown by restarting the Worker in the middle of a task.** Its work is due a moment
+	 * after it is created; the Worker is stopped before then and a new one started over the same
+	 * persisted state. The new Worker serves the task, its Durable Object's alarm runs the work, and
+	 * the task completes with what the tool answers.
+	 */
+	it("keeps the task, and finishes its work, across a restart", async () => {
+		const state = join(here, ".out", "restart-state");
+		rmSync(state, { recursive: true, force: true });
+		const options = { config: join(here, "wrangler.jsonc"), dev: { persist: state } };
+
+		const first = await unstable_startWorker(options);
+		await first.ready;
+		const created = await tasksRpc((await first.url).origin, "tools/call", {
+			name: "WidgetTools_create",
+			arguments: { name: "b" },
+		});
+		await first.dispose();
+		expect(created).toMatchObject({ resultType: "task", status: "working" });
+		const taskId = String(created?.["taskId"]);
+
+		const second = await unstable_startWorker(options);
+		try {
+			await second.ready;
+			expect(await settled((await second.url).origin, taskId)).toMatchObject({
+				taskId,
+				status: "completed",
+				result: { content: [{ type: "text", text: '{"id":"1","name":"a","colour":"grey"}' }] },
+			});
+		} finally {
+			await second.dispose();
+		}
+	}, 120_000);
 });

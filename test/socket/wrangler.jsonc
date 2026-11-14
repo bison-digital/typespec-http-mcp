@@ -17,4 +17,8 @@
 	// worker, so nothing here or in the test names one.
 	"dev": { "port": 0, "inspector_port": 0 },
 	"observability": { "enabled": false },
+	// The task store the documented Worker keeps its MCP tasks in: a Durable Object, so a task
+	// outlives the request, the server and the Worker process that created it.
+	"durable_objects": { "bindings": [{ "name": "TASKS", "class_name": "TaskStoreObject" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["TaskStoreObject"] }],
 }
