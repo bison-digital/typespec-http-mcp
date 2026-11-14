@@ -9,6 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The suite runs third-party code, the conformance suite fetched at run time among it, so CI holds
+# no token that can write.
+permissions:
+  contents: read
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -20,6 +25,8 @@ jobs:
         node: [22, 24]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # **Both packages are resolved from the registry, exactly as a consumer resolves them.** While
       # they were unpublished, `pnpm-workspace.yaml` linked them and this job checked both siblings out

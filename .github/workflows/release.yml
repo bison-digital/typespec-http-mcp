@@ -8,17 +8,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
+  # **The gate runs where nothing can be written.** `pnpm test` runs third-party code: the dev
+  # dependencies, the workerd the socket suite starts, and the official MCP conformance suite, which
+  # it fetches by exact version because it is built on the v1 SDK this package keeps out of its
+  # lockfile, so that suite's own dependencies resolve on every run. None of it may hold a token
+  # that can push, create a release or mint a publishing identity: read-only permissions, and the
+  # checkout keeps no credentials in `.git/config`.
+  verify:
     runs-on: ubuntu-latest
     permissions:
-      # `write`, not `read`: the last step creates the GitHub release.
-      contents: write
-      # Required for npm provenance: npm exchanges this for a signed attestation linking the
-      # published tarball to the commit and workflow that produced it. Without it, `provenance: true`
-      # in package.json fails the publish rather than silently skipping.
-      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -68,6 +71,47 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
+
+  # **Publishing holds the write and identity permissions, and runs no tests.** It installs from the
+  # lockfile and builds, so only pinned code runs beside those permissions, and only after the gate
+  # above passed for this commit.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      # `write`, not `read`: the last step creates the GitHub release.
+      contents: write
+      # Required for npm provenance: npm exchanges this for a signed attestation linking the
+      # published tarball to the commit and workflow that produced it. Without it, `provenance: true`
+      # in package.json fails the publish rather than silently skipping.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # **`--frozen-lockfile` exits 0 on a dangling link.** While `typespec-http-zod` was
+      # unpublished, `pnpm-workspace.yaml` redirected it to `link:../typespec-http-zod` so the two
+      # could be developed together. A release checkout has no sibling on disk: pnpm installs the
+      # dangling symlink, reports success, and the failure surfaces four steps later as a wall of
+      # TS2307 that names the module but not the cause. Measured, not assumed.
+      - name: Refuse to publish against a locally-linked dependency
+        run: |
+          if grep -qE '^\s+typespec-[a-z-]+:\s*"?(link|file):' pnpm-workspace.yaml; then
+            echo "::error::pnpm-workspace.yaml still overrides a first-party package to a local path."
+            echo "::error::Remove the 'overrides' block and re-run 'pnpm install' so the lockfile"
+            echo "::error::resolves it from the registry, then re-tag."
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
 
       # `--provenance` is redundant with publishConfig and stated anyway, because the flag is what a
       # reader looks for and a silent default is how provenance quietly stops being generated.
