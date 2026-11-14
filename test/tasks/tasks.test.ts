@@ -117,11 +117,11 @@ let exporting: () => unknown = () => ({
 const exportCalls = vi.fn();
 
 const handlers = {
-	getBook: (_caller: unknown, input: { bookId: string }) => ({
+	Books_read: (_caller: unknown, input: { bookId: string }) => ({
 		status: 200,
 		body: { id: input.bookId, title: "The Left Hand of Darkness" },
 	}),
-	exportCatalog: (caller: unknown, input: unknown) => {
+	Catalog_export: (caller: unknown, input: unknown) => {
 		exportCalls(caller, input);
 		return exporting();
 	},
@@ -201,14 +201,14 @@ function asProduced(result: Record<string, unknown> | undefined): Record<string,
 }
 
 /** The body's fields are the tool's arguments, flat, and the handler receives them as they arrive. */
-const EXPORT = { name: "exportCatalog", arguments: { format: "csv" } };
-const EXPORT_CALL = { operationId: "exportCatalog", input: { format: "csv" } };
+const EXPORT = { name: "Catalog_export", arguments: { format: "csv" } };
+const EXPORT_CALL = { operationId: "Catalog_export", input: { format: "csv" } };
 
 /** The policy most applications write: list the operation, and keep the call as the store context. */
 const listingExport =
 	(extra: Record<string, unknown> = {}) =>
 	(extension: InstanceType<EmittedRuntime["TasksExtension"]>) => ({
-		operations: ["exportCatalog"],
+		operations: ["Catalog_export"],
 		create: (call: Call, _caller: unknown, context: unknown) =>
 			extension.create(context, { context: { ...call } }),
 		...extra,
@@ -263,7 +263,7 @@ describe("never a task where the extension forbids one or the application did no
 	it("answers an unlisted tool inline", async () => {
 		const store = new MemoryStore();
 		const answer = await deploy(store, listingExport())("tools/call", {
-			name: "getBook",
+			name: "Books_read",
 			arguments: { bookId: "b1" },
 		});
 		expect(answer.result).not.toHaveProperty("resultType", "task");
@@ -286,12 +286,12 @@ describe("what a listed tool publishes", () => {
 
 	it("withholds outputSchema from the listed tool only, since a task tool cannot publish one", async () => {
 		expect(await outputSchemas(deploy(new MemoryStore(), listingExport()))).toEqual({
-			exportCatalog: false,
-			getBook: true,
+			Books_read: true,
+			Catalog_export: false,
 		});
 		expect(await outputSchemas(deploy(new MemoryStore(), undefined))).toEqual({
-			exportCatalog: true,
-			getBook: true,
+			Books_read: true,
+			Catalog_export: true,
 		});
 	});
 
@@ -306,7 +306,7 @@ describe("what a listed tool publishes", () => {
 		for (const [method, params] of [
 			["tools/list", {}],
 			["tools/call", EXPORT],
-			["tools/call", { name: "getBook", arguments: { bookId: "b1" } }],
+			["tools/call", { name: "Books_read", arguments: { bookId: "b1" } }],
 		] as const) {
 			expect(asProduced((await none(method, params)).result)).toEqual(
 				asProduced((await without(method, params)).result),
@@ -378,10 +378,10 @@ describe("what the generated code refuses rather than gets wrong", () => {
 		await expect(
 			generated.runTool(
 				handlers,
-				{ operationId: "exportCatalog", input: { format: "xml" } },
+				{ operationId: "Catalog_export", input: { format: "xml" } },
 				CALLER,
 			),
-		).rejects.toThrow(/exportCatalog/);
+		).rejects.toThrow(/Catalog_export/);
 		expect(exportCalls).not.toHaveBeenCalled();
 	});
 
@@ -419,15 +419,15 @@ const deps: ToolDeps<Caller, ToolCall> = {
 	context: () => ({ id: "shop-front" }),
 	noContext: () => ({ content: [], isError: true }),
 	tasks: {
-		operations: ["exportCatalog"],
-		decide: (call) => (call.operationId === "exportCatalog" ? "task" : "inline"),
+		operations: ["Catalog_export"],
+		decide: (call) => (call.operationId === "Catalog_export" ? "task" : "inline"),
 		create: (call, caller, context) => tasks.create(context, { context: { ...call, caller: caller.id } }),
 	},
 };
 const server = new McpServer({ name: "bookshop", version: "1.0.0" });
 tasks.attach(server);
 registerTools(server, () => handlers, deps);
-export const settled = runTool(handlers, { operationId: "exportCatalog", input: { format: "csv" } }, { id: "shop-front" });
+export const settled = runTool(handlers, { operationId: "Catalog_export", input: { format: "csv" } }, { id: "shop-front" });
 
 export const refused: ToolDeps<Caller, ToolCall>["tasks"] = {
 	// @ts-expect-error -- not an operation of this service

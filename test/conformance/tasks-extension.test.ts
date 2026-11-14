@@ -105,9 +105,9 @@ const handlers = {
 	},
 	confirm_delete: (_caller: unknown, input: { filename: string }) => ({
 		status: 200,
-		body: { deleted: input.filename },
+		body: { filename: input.filename },
 	}),
-	multi_input: () => ({ status: 200, body: { answered: 2 } }),
+	multi_input: () => ({ status: 200, body: { count: 2 } }),
 };
 
 /** What a task waits for before its work can finish, by operation: the store asks, not the tool. */

@@ -7,66 +7,66 @@ using Http;
  * arguments the suite fixes. The spec says nothing about tasks: the suite's server lists
  * every tool but `greet` in `deps.tasks` where it wires them.
  */
-@service(#{ title: "Tasks conformance" })
-namespace TasksConformance;
+@service(#{ title: "Jobs" })
+namespace Jobs;
 
-model Computation {
+model Job {
   seconds: int32;
   label?: string;
 }
 
-model Computed {
+model Output {
   label: string;
   seconds: int32;
 }
 
 @error
-model JobFailed {
+model Problem {
   @statusCode statusCode: 500;
   message: string;
 }
 
-/** Greet someone, at once. */
-@route("/greet")
-@get
-op greet(@query name: string): {
-  @header contentType: "text/plain";
-  @body greeting: string;
-};
-
-/** Wait the given number of seconds, then answer. */
-@route("/compute")
-@post
-op slow_compute(@body computation: Computation): Computed;
-
-/** A job whose every run fails with a tool error. */
-@route("/jobs/failing")
-@post
-op failing_job(): Computed | JobFailed;
-
-/** A job whose every run fails below the tool, with a protocol error. */
-@route("/jobs/protocol-error")
-@post
-op protocol_error_job(): Computed;
-
-model Deletion {
+model File {
   filename: string;
 }
 
-model Deleted {
-  deleted: string;
+model Done {
+  filename: string;
 }
 
 model Answers {
-  answered: int32;
+  count: int32;
 }
 
-/** Delete a file once the person confirms it. */
-@route("/files/deletions")
+/** Greet someone, at once. */
+@route("/hello")
+@get
+op greet(@query name: string): {
+  @header contentType: "text/plain";
+  @body text: string;
+};
+
+/** Wait the given number of seconds, then answer. */
+@route("/jobs/start")
 @post
-op confirm_delete(@body deletion: Deletion): Deleted;
+op slow_compute(@body job: Job): Output;
+
+/** A job whose every run fails with a tool error. */
+@route("/jobs/failure")
+@post
+op failing_job(): Output | Problem;
+
+/** A job whose every run fails below the tool, with a protocol error. */
+@route("/jobs/error")
+@post
+op protocol_error_job(): Output;
+
+/** Remove a file once the person confirms it. */
+@route("/files/remove")
+@post
+op confirm_delete(@body file: File): Done;
 
 /** Ask two questions at once, then answer. */
-@route("/questions")
+@route("/answers")
 @post
 op multi_input(): Answers;

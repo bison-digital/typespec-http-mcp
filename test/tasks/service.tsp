@@ -18,11 +18,11 @@ model Book {
   title: string;
 }
 
-model ExportRequest {
+model Export {
   format: "csv" | "json";
 }
 
-model CatalogExport {
+model Report {
   url: string;
   titles: int32;
 }
@@ -34,12 +34,14 @@ model NotFound {
   message: string;
 }
 
-/** Fetch one book. */
-@route("/books/{bookId}")
-@get
-op getBook(@path bookId: string): Book | NotFound;
+@route("/books")
+interface Books {
+  /** Fetch one book. */
+  @route("/{bookId}") @get read(@path bookId: string): Book | NotFound;
+}
 
-/** Export the whole catalogue. */
-@route("/catalog/exports")
-@post
-op exportCatalog(@body request: ExportRequest): CatalogExport | NotFound;
+@route("/catalog")
+interface Catalog {
+  /** Export the whole catalogue. */
+  @route("/export") @post export(@body request: Export): Report | NotFound;
+}
